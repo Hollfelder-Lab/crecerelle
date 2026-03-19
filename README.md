@@ -6,3 +6,5 @@ embeddings based solely on gene expression or transcript usage can then be learn
 and scTUVI respectively. Joint cell embeddings of both gene expression and splicing are inferred
 through scGETUVI. The learnt GE, TU, or GE-TU cell embeddings are then applied for cell anno-
 tation, gene expression and transcript usage integration, and functional characterisation.
+
+## Citation
