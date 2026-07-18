@@ -2366,9 +2366,10 @@ def evaluate_vae_emb_cell_type_classifiers(
 
     :param adata: Tuple of two AnnData objects with adata[0] containing gene expression and adata[1] containing transcript usage data
     :param tissue: The tissue type to filter the data by
-    :param checkpoint_indices: List of indices of the checkpoints to evaluate
-    :param likelihoods: List of strings of likelihoods where likelihoods[0] is for gene expression and likelihoods[1] for transcript usage e.g. ["ZINB", "ZIDM"]
-    :param emb_types: List of strings of embedding types to use for classification, e.g. ["private_1", "private_2", "shared_uni_1", "shared_uni_2", "shared"]
+    :param checkpoint_indices_GE: List of gene expression checkpoint indices to evaluate
+    :param checkpoint_indices_TU: List of transcript usage checkpoint indices to evaluate
+    :param likelihoods_GE: List of gene expression likelihood strings
+    :param likelihoods_TU: List of transcript usage likelihood strings
     :param dataset_name: The name of the dataset, e.g. "tabulaMuris"
     :param device: The device to use for evaluation, e.g. "cuda" or "cpu"
     :return: Tuple of two AnnData objects with predicted cell types in .obs and a dictionary with evaluation metrics

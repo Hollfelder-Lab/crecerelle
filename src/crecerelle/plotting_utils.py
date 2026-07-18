@@ -1440,8 +1440,8 @@ def dsg_dotplot_helper(
     the intron names are returned as numpy arrays. The mean psi values and the number of cells are calculated for the
     top num_intron_group_markers DSGs for each cluster group specified in cluster_groups. The DSG analysis should have
     been performed using the scTUVI or scGETUVI latent space and the results should be present in
-    adata.uns["rank_introns_groups"]. The cluster groups specified in cluster_groups should be present in
-    adata.uns["rank_introns_groups"]["names"]. The raw PSI scores should be present in adata.layers["PSI_raw"].
+    `adata.uns["rank_introns_groups"]`. The cluster groups specified in cluster_groups should be present in
+    `adata.uns["rank_introns_groups"]["names"]`. The raw PSI scores should be present in `adata.layers["PSI_raw"]`.
 
     :param adata: AnnData object containing the results of the DSG analysis for a specific tissue and cluster groups
     :param cluster_groups: List of str, the Leiden cluster groups for which the mean psi values and number of cells will be calculated for the top DSGs
@@ -5001,7 +5001,6 @@ def plot_gene_expression_data_distribution_analysis(
     :param likelihood_keys: list of names of likelihood keys to be used for predictions
     :param bin_sizes: list, the size of the bins for the histograms
     :param tissue: None, if provided the UMAP of the latent space of the embeddings of that tissue is shown
-    :param predictions: bool, if the model contains predictions (reconstructions, latent means, and UMAP)
     :param save_fig: bool, whether to save the figure as a PDF file
     :return: None
     """
