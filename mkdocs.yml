@@ -1,0 +1,82 @@
+site_name: Crecerelle
+site_description: Documentation for the Crecerelle notebooks and Python API.
+repo_url: https://github.com/Hollfelder-Lab/crecerelle
+repo_name: Hollfelder-Lab/crecerelle
+edit_uri: edit/main/
+docs_dir: docs
+site_dir: site
+use_directory_urls: true
+strict: true
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+  palette:
+    - scheme: default
+      primary: teal
+      accent: indigo
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - src
+          options:
+            docstring_style: sphinx
+            members_order: source
+            separate_signature: true
+            show_root_heading: true
+            show_signature_annotations: true
+            show_source: true
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true
+      ignore_h1_titles: false
+
+hooks:
+  - hooks/notebook_sources.py
+  - hooks/colab_links.py
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quick Start: quick-start.md
+  - Conceptual Model: conceptual-model.md
+  - Paper Reproduction: paper-reproduction.md
+  - Tutorials:
+      - Tutorial Index: tutorials/index.md
+      - Data Processing and Clustering Assessment: notebooks/main_DataProcessing_ClustAssess.ipynb
+      - scTUVI Model Selection: notebooks/main_Model_Selection_scTUVI.ipynb
+      - scTUVI Training: notebooks/main_Training_scTUVI.ipynb
+      - scVI Training: notebooks/main_Training_scVI.ipynb
+      - scGETUVI Model Selection: notebooks/main_Model_Selection_scGETUVI.ipynb
+      - scGETUVI Training: notebooks/main_Training_scGETUVI.ipynb
+      - scTUVI/scVI Inference: notebooks/main_Inference_scTUVI_scVI.ipynb
+      - scGETUVI Inference: notebooks/main_Inference_scGETUVI.ipynb
+  - API Reference:
+      - Overview: api/index.md
+      - crecerelle.models: api/models.md
+      - crecerelle.utils: api/utils.md
+      - crecerelle.training_utils: api/training_utils.md
+      - crecerelle.plotting_utils: api/plotting_utils.md
+      - crecerelle.cell: api/cell.md
+      - crecerelle.cell_types: api/cell_types.md
