@@ -1,0 +1,8 @@
+site/
+.cache/
+.pytest_cache/
+.venv/
+.venv-docs/
+__pycache__/
+*.py[cod]
+docs/notebooks
