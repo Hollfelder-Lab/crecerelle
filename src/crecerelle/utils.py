@@ -924,10 +924,12 @@ def determine_zanidm_cases(
         num_cases_dict["case_3"] += num_case_d_1.item()
         num_cases_dict["case_4"] += num_case_d_2.item()
 
-    print(f"Case all nonzero: The number of case x_j > 0 and N > 0 is {num_cases_dict["case_1"]}. \n"
-          f"Case all zero: The number of case x = 0 and N = 0 is {num_cases_dict["case_2"]}. \n"
-          f"Case one nonzero: The number of case d - 1 categories are zero and N > 0 is {num_cases_dict["case_3"]}. \n"
-          f"Case subsets are zero: The number of case d - 2 categories are zero and N > 0 is {num_cases_dict["case_4"]}.")
+        print(
+                f"Case all nonzero: The number of case x_j > 0 and N > 0 is {num_cases_dict['case_1']}. \n"
+                f"Case all zero: The number of case x = 0 and N = 0 is {num_cases_dict['case_2']}. \n"
+                f"Case one nonzero: The number of case d - 1 categories are zero and N > 0 is {num_cases_dict['case_3']}. \n"
+                f"Case subsets are zero: The number of case d - 2 categories are zero and N > 0 is {num_cases_dict['case_4']}."
+        )
 
     return num_cases_dict
 
