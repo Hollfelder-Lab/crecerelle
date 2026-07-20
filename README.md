@@ -1,10 +1,43 @@
 # Crecerelle
-Crecerelle is a suite of deep generative models enabling cell development analy-
-sis based on single-cell gene expression and alternative splicing. Pre-processing and quality
-controls of scRNA-seq yield a gene expression (GE) matrix and transcript usage (TU) matrix. Cell
-embeddings based solely on gene expression or transcript usage can then be learnt through scVI ([2])
-and scTUVI respectively. Joint cell embeddings of both gene expression and splicing are inferred
-through scGETUVI. The learnt GE, TU, or GE-TU cell embeddings are then applied for cell anno-
-tation, gene expression and transcript usage integration, and functional characterisation.
 
-## Citation
+This repo contains the processing scripts, code and evaluation methods for the paper XX.
+
+XX Workflow diagram
+
+## 📦 Installation
+
+**Via github**:
+
+XX
+
+**Via pip**:
+
+XX
+
+## 🚀 Usage
+
+XX
+
+## 🧪 Data
+
+XX
+
+## 📜 License
+
+This code is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 📃 Citing this work
+
+Please cite our paper if you use this code or data in your own work:
+
+## 👥 Authors
+
+- [Hollfelder Lab](https://hollfelder.bioc.cam.ac.uk/), Department of Biochemistry, University of Cambridge, UK
+- [Mohorianu Lab](https://www.corebioinf.stemcells.cam.ac.uk/), Wellcome Stem Cell Institute, University of Cambridge, UK
+
+## 📧 Contact
+
+For questions, please contact
+
+- fmw37(at)cam.ac.uk
+
