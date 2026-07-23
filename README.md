@@ -18,9 +18,9 @@ XX
 
 XX
 
-## 🧪 Data
+## 🧪 Data and trained models 
 
-XX
+XX and Zenodo link
 
 ## 📜 License
 
