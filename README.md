@@ -18,7 +18,7 @@ XX
 
 XX
 
-## 🧪 Data and trained models 
+## 🧪 Processed datasets and trained models 
 
 XX and Zenodo link
 
@@ -33,11 +33,11 @@ Please cite our paper if you use this code or data in your own work:
 ## 👥 Authors
 
 - [Hollfelder Lab](https://hollfelder.bioc.cam.ac.uk/), Department of Biochemistry, University of Cambridge, UK
-- [Mohorianu Lab](https://www.corebioinf.stemcells.cam.ac.uk/), Wellcome Stem Cell Institute, University of Cambridge, UK
 
 ## 📧 Contact
 
 For questions, please contact
 
 - fmw37(at)cam.ac.uk
+- fh111(at)cam.ac.uk
 
