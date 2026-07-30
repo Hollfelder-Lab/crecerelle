@@ -28,7 +28,22 @@ This code is licensed under the MIT License - see the [LICENSE](LICENSE) file fo
 
 ## 📃 Citing this work
 
-Please cite our paper if you use this code or data in your own work:
+Please cite our paper if you use this code in your own work:
+
+```bibtex
+@article {
+ Weberling2026,
+ author = {},
+ title = {},
+ elocation-id = {},
+ year = {2026},
+ doi = {},
+ publisher = {},
+ URL = {},
+ eprint = {},
+ journal = {}
+}
+```
 
 ## 👥 Authors
 
