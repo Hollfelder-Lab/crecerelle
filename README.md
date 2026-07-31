@@ -16,7 +16,7 @@ XX
 
 ## 🚀 Usage
 
-XX
+For inference with scGETUVI use [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Inference_scGETUVI.ipynb)
 
 ## 🧪 Processed datasets and trained models 
 
