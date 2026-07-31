@@ -16,7 +16,29 @@ XX
 
 ## 🚀 Usage
 
-For inference with scGETUVI use [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Inference_scGETUVI.ipynb)
+For data-processing see
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_DataProcessing_ClustAssess.ipynb)
+
+For training scTUVI see
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Training_scTUVI.ipynb)
+
+For training scVI see
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Training_scVI.ipynb)
+
+For training scGETUVI see
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Training_scGETUVI.ipynb)
+
+For model selection of scTUVI see
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Model_Selection_scTUVI.ipynb)
+
+For model selection of scGETUVI see
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Model_Selection_scGETUVI.ipynb)
+
+For inference with scTUVI and scVI see
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Inference_scTUVI_scVI.ipynb)
+
+For inference with scGETUVI see
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Inference_scGETUVI.ipynb)
 
 ## 🧪 Processed datasets and trained models 
 
