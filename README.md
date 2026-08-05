@@ -2,7 +2,7 @@
 
 This repo contains the processing scripts, code and evaluation methods for the paper XX.
 
-XX Workflow diagram
+![workflow](figures/figure1_crecerelle_overview.pdf)
 
 ## 📦 Installation
 
