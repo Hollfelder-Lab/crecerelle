@@ -6975,7 +6975,7 @@ def plot_cell_embeddings_analysis_trvi(
     :param cell_embeddings_keys:
     :param seeds_selected:
     :param seed:
-    :param isoforms_to_visualize
+    :param isoforms_to_visualize:
     :param save_fig:
     """
     adata_1 = adata_objects[0] # Gene expression
@@ -8285,7 +8285,7 @@ def plot_enrichment_term_barchart(
     :param show_rank: Prefix each y-axis label with its original 1-based dataframe rank.
     :param pvalue_scale: Color scale for p-values: ``"log"`` or ``"linear"``.
     :param pvalue_label: Label for the p-value colorbar.
-    :param include_term_id: Whether to include the term ID in the y-axis labels.
+    :param plot_term_id: Whether to include the term ID in the y-axis labels.
     :param ax: matplotlib axes object
     :param kwargs: Additional keyword arguments. Can include ``p_max`` to set the maximum p-value for color scaling.
 
