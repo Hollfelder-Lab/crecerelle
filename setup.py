@@ -10,8 +10,7 @@ setup(
     include_package_data=True,
     license='MIT',
     classifiers=[
-        'Programming Language :: Python :: 3.10',
-        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
         'License :: OSI Approved :: MIT License',
     ],
     install_requires=[
@@ -19,7 +18,12 @@ setup(
         'anndata',
         'scanpy',
         'numpyro',
-        'pandas',
+        # Versions used in the working Google Colab installation.
+        'pandas==2.2.3',
+        'scvi-tools==1.4.3',
+        'scverse-misc[settings]==0.1.5',
+        'pydantic-settings',
+        'python-dotenv',
         'numpy',
         'matplotlib',
         'seaborn',
@@ -32,6 +36,7 @@ setup(
         'gprofiler-official',
         'matplotlib-venn',
     ],
-    python_requires='>=3.10',
+    # Required by scvi-tools 1.4.3 and scverse-misc 0.1.5.
+    python_requires='>=3.12',
     description='Crecerelle: deep generative cell embeddings embeddings from single-cell gene expression alternative splicing-induced transcript usage data',
 )
