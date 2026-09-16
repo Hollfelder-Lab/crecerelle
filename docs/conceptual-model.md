@@ -8,8 +8,8 @@ Crecerelle analyses single-cell transcriptomic signatures from two linked views:
 The package and notebooks use three modelling tracks:
 
 - `scVI` for gene-expression-only cell embeddings,
-- `scTUVI` for transcript-usage-only cell embeddings,
-- `scGETUVI` for joint gene expression and transcript usage embeddings.
+- `tuVI` for transcript-usage-only cell embeddings,
+- `TRVI` for joint gene expression and transcript usage embeddings.
 
 The paper describes the motivation as moving beyond gene-expression-only interpretation by modelling transcript usage as a complementary transcriptomic layer. The README describes the downstream use of learnt GE, TU, and GE-TU embeddings for cell annotation, integration of gene expression and transcript usage, and functional characterisation.
 
