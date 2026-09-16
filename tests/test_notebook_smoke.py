@@ -6,13 +6,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOKS = [
     Path("notebooks/main_DataProcessing_ClustAssess.ipynb"),
-    Path("notebooks/main_Model_Selection_scTUVI.ipynb"),
-    Path("notebooks/main_Training_scTUVI.ipynb"),
+    Path("notebooks/main_Model_Selection_tuVI.ipynb"),
+    Path("notebooks/main_Training_tuVI.ipynb"),
     Path("notebooks/main_Training_scVI.ipynb"),
-    Path("notebooks/main_Model_Selection_scGETUVI.ipynb"),
-    Path("notebooks/main_Training_scGETUVI.ipynb"),
-    Path("notebooks/main_Inference_scTUVI_scVI.ipynb"),
-    Path("notebooks/main_Inference_scGETUVI.ipynb"),
+    Path("notebooks/main_Model_Selection_TRVI.ipynb"),
+    Path("notebooks/main_Training_TRVI.ipynb"),
+    Path("notebooks/main_Inference_tuVI_scVI.ipynb"),
+    Path("notebooks/main_Inference_TRVI.ipynb"),
 ]
 
 
