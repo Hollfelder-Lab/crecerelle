@@ -48,7 +48,7 @@ For inference with TRVI see
 
 ## 🧪 Processed datasets and trained models 
 
-XX and Zenodo link
+Our data and trained models are available on Zenodo: XX
 
 ## 📜 License
 
