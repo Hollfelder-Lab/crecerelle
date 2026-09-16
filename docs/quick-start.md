@@ -23,12 +23,12 @@ The notebooks expect data and outputs below `crecerelle_results`, with subdirect
 Recommended notebook order:
 
 1. [Data Processing and Clustering Assessment](notebooks/main_DataProcessing_ClustAssess.ipynb)
-2. [scTUVI Training](notebooks/main_Training_scTUVI.ipynb)
+2. [tuVI Training](notebooks/main_Training_tuVI.ipynb)
 3. [scVI Training](notebooks/main_Training_scVI.ipynb)
-4. [scGETUVI Training](notebooks/main_Training_scGETUVI.ipynb)
-5. [scTUVI Model Selection](notebooks/main_Model_Selection_scTUVI.ipynb)
-6. [scGETUVI Model Selection](notebooks/main_Model_Selection_scGETUVI.ipynb)
-7. [scTUVI/scVI Inference](notebooks/main_Inference_scTUVI_scVI.ipynb)
-8. [scGETUVI Inference](notebooks/main_Inference_scGETUVI.ipynb)
+4. [TRVI Training](notebooks/main_Training_TRVI.ipynb)
+5. [tuVI Model Selection](notebooks/main_Model_Selection_tuVI.ipynb)
+6. [TRVI Model Selection](notebooks/main_Model_Selection_TRVI.ipynb)
+7. [tuVI/scVI Inference](notebooks/main_Inference_tuVI_scVI.ipynb)
+8. [TRVI Inference](notebooks/main_Inference_TRVI.ipynb)
 
 See the [tutorial index](tutorials/index.md) for the input files and expected outputs for each notebook.
