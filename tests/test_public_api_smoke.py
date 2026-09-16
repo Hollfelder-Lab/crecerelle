@@ -56,8 +56,8 @@ def test_setup_crecerelle_public_api(tmp_path):
         results / "data" / "tabulaMuris",
         results / "figures" / "tabulaMuris",
         results / "models" / "scVI",
-        results / "models" / "scTUVI",
-        results / "models" / "scGETUVI",
+        results / "models" / "tuVI",
+        results / "models" / "TRVI",
     ]
     assert all(Path(path).is_dir() for path in expected_dirs)
 
