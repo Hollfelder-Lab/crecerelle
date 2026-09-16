@@ -65,13 +65,13 @@ nav:
   - Tutorials:
       - Tutorial Index: tutorials/index.md
       - Data Processing and Clustering Assessment: notebooks/main_DataProcessing_ClustAssess.ipynb
-      - scTUVI Model Selection: notebooks/main_Model_Selection_scTUVI.ipynb
-      - scTUVI Training: notebooks/main_Training_scTUVI.ipynb
+      - tuVI Model Selection: notebooks/main_Model_Selection_tuVI.ipynb
+      - tuVI Training: notebooks/main_Training_tuVI.ipynb
       - scVI Training: notebooks/main_Training_scVI.ipynb
-      - scGETUVI Model Selection: notebooks/main_Model_Selection_scGETUVI.ipynb
-      - scGETUVI Training: notebooks/main_Training_scGETUVI.ipynb
-      - scTUVI/scVI Inference: notebooks/main_Inference_scTUVI_scVI.ipynb
-      - scGETUVI Inference: notebooks/main_Inference_scGETUVI.ipynb
+      - TRVI Model Selection: notebooks/main_Model_Selection_TRVI.ipynb
+      - TRVI Training: notebooks/main_Training_TRVI.ipynb
+      - tuVI/scVI Inference: notebooks/main_Inference_tuVI_scVI.ipynb
+      - TRVI Inference: notebooks/main_Inference_TRVI.ipynb
   - API Reference:
       - Overview: api/index.md
       - crecerelle.models: api/models.md
