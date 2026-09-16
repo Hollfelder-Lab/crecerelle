@@ -19,25 +19,25 @@ XX
 For data-processing see
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_DataProcessing_ClustAssess.ipynb)
 
-For training scTUVI see
+For training tuVI see
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Training_scTUVI.ipynb)
 
 For training scVI see
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Training_scVI.ipynb)
 
-For training scGETUVI see
+For training TRVI see
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Training_scGETUVI.ipynb)
 
-For model selection of scTUVI see
+For model selection of tuVI see
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Model_Selection_scTUVI.ipynb)
 
-For model selection of scGETUVI see
+For model selection of TRVI see
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Model_Selection_scGETUVI.ipynb)
 
-For inference with scTUVI and scVI see
+For inference with tuVI and scVI see
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Inference_scTUVI_scVI.ipynb)
 
-For inference with scGETUVI see
+For inference with TRVI see
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main_Inference_scGETUVI.ipynb)
 
 ## 🧪 Processed datasets and trained models 
@@ -77,4 +77,5 @@ For questions, please contact
 
 - fmw37(at)cam.ac.uk
 - fh111(at)cam.ac.uk
+
 
