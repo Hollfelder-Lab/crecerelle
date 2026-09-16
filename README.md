@@ -8,11 +8,17 @@ This repo contains the processing scripts, code and evaluation methods for the p
 
 **Via github**:
 
-XX
+```bash
+git clone git+https://github.com/Hollfelder-Lab/crecerelle.git
+cd crecerelle
+pip install -e .
+```
 
 **Via pip**:
 
-XX
+```bash
+pip install git+https://github.com/Hollfelder-Lab/crecerelle.git
+```
 
 ## 🚀 Usage
 
