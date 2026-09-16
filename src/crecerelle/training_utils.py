@@ -16,7 +16,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch import device
 
-from .models import BetaVAE, SCGETUVI, LogisticRegressionClassifier
+from .models import BetaVAE, TRVI, LogisticRegressionClassifier
 import matplotlib.pyplot as plt
 
 def plot_loss(
@@ -161,92 +161,6 @@ def random_multiple_dataset_split(
 
     return dataset_dict, original_indices
 
-
-def train_VAE_one_epoch_OLD(
-        model: BetaVAE,
-        optimizer: Adam,
-        train_loader: DataLoader,
-        count_data_included: bool = True
-) -> Tuple[float, float, float]:
-    r"""
-    Given the training data loader, train the VAE one epoch and report the batch and the loss during each iteration.
-    The last loss is returned.
-
-    :param model:
-    :param optimizer:
-    :param train_loader:
-    :param count_data_included:
-    :return:
-    """
-
-    # Set model to training mode
-    model.train()
-
-    avg_loss = 0
-    avg_nll = 0
-    avg_kld = 0
-
-    running_loss = 0
-    running_nll = 0
-    running_kld = 0
-    num_trained_batches = 0
-
-    for i, batch in enumerate(train_loader):
-
-        # Zero gradients for every batch
-        optimizer.zero_grad()
-
-        # To do later: include noise sampling here instead of inside the model
-        eps = auxiliary_noise((batch[1].shape[0], model.latent_dim))
-
-        if count_data_included:
-            input_batch_counts, input_batch_levels, _, _ = batch
-            input_batch = (input_batch_counts.to(model.device), input_batch_levels.to(model.device))
-            eps = eps.to(model.device)
-        else:
-            _, input_batch, _, _ = batch
-
-            input_batch = input_batch.to(model.device)
-            eps = eps.to(model.device)
-
-        # Compute the ELBO and its gradients
-        elbo, kld, nll = model.forward(input_batch, eps)
-        loss = elbo.mean()
-        loss.backward()
-
-        # Gradient clipping (optional)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-        # Adjust learning weights
-        optimizer.step()
-
-        # Gather data and report
-        running_loss += loss.item()
-        running_nll += nll.mean().item()
-        running_kld += kld.mean().item()
-
-        avg_loss += loss.item()
-        avg_nll += nll.mean().item()
-        avg_kld += kld.mean().item()
-        num_trained_batches += 1
-
-        if i % 10 == 9:
-            last_loss = running_loss / num_trained_batches  # average loss per data point (previously running_loss / 10)
-            print(f"   batch {i + 1} loss: {last_loss}")
-            print(f"        NLL: {running_nll / num_trained_batches}, KLD: {running_kld / num_trained_batches}")
-            running_loss = 0
-            running_nll = 0
-            running_kld = 0
-
-            num_trained_batches = 0
-
-    # avg_loss = avg_loss / len(train_loader.dataset)
-    avg_loss = avg_loss / len(train_loader)
-    avg_nll = avg_nll / len(train_loader)
-    avg_kld = avg_kld / len(train_loader)
-
-    return avg_loss, avg_nll, avg_kld
-
 def train_VAE_one_epoch(
         model: BetaVAE,
         optimizer: Adam,
@@ -344,7 +258,7 @@ def train_VAE_one_epoch(
     return avg_loss, avg_nll, avg_kld
 
 def train_MMVAEplus_one_epoch(
-        model: SCGETUVI,
+        model: TRVI,
         optimizer: Adam,
         train_loader: DataLoader,
         beta_kl_warmup_epoch: Optional[List[float]] = None,
@@ -353,9 +267,9 @@ def train_MMVAEplus_one_epoch(
         device: str = "cuda"
 ) -> tuple[float, float, float, float, float, float, float]:
     r"""
-    Given a dataloader containing the training dataset, the optimiser, and a model, train SCGETUVI one epoch.
+    Given a dataloader containing the training dataset, the optimiser, and a model, train TRVI one epoch.
 
-    :param model: SCGETUVI
+    :param model: TRVI
     :param optimizer: torch.optim.Adam
     :param train_loader: torch.utils.data.DataLoader
     :param beta_kl_warmup_epoch: list of float, the beta values for KL warm-up for the current epoch for both modalities
@@ -536,129 +450,6 @@ def train_MMVAEplus_one_epoch(
         avg_kld_2
     )
 
-
-def train_MMVAEplus_one_epoch_OLD(
-        model: SCGETUVI,
-        optimizer: Adam,
-        train_loader: DataLoader,
-        beta_kl_warmup_epoch: List[float] = [1.0, 1.0],
-        temp_epoch: float = 0.1, # ADDED FOR SCGETUVI_EXP
-        num_samples: int = 1,
-        device: device = "cuda"
-) -> tuple[float, float, float, float, float, float, float]:
-    r"""
-    Given a dataloader containing the training dataset, the optimiser, and a model, train the MMVAE+ one epoch.
-
-    :param model: GeneExpressionTranscriptUsageMMVAEplus
-    :param optimizer: torch.optim.Adam
-    :param train_loader: torch.utils.data.DataLoader
-    :param beta_kl_warmup_epoch: list of float, the beta values for KL warm-up for the current epoch for both modalities
-    :param temp_epoch: float, the temperature value for modality weight annealing for the current epoch
-    :param num_samples: int, number of noise samples to draw for Monte Carlo estimation
-    :param device: selected torch.device either "cpu" or "cuda"
-    :return: float, the average loss of the epoch
-    """
-    model.train()
-
-    avg_loss = 0
-    avg_elbo_1 = 0
-    avg_elbo_2 = 0
-    avg_nll_1 = 0
-    avg_nll_2 = 0
-    avg_kld_1 = 0
-    avg_kld_2 = 0
-
-    running_loss = 0
-    running_elbo_1 = 0
-    running_elbo_2 = 0
-    running_nll_1 = 0
-    running_nll_2 = 0
-    running_kld_1 = 0
-    running_kld_2 = 0
-    num_trained_batches = 0
-
-    for i, batch in enumerate(train_loader):
-        # 1 is for gene expression data and 2 for transcript usage data
-        input_batch_1_counts, input_batch_1_levels, input_batch_2_counts, input_batch_2_levels, _, _ = batch
-        batch_size = input_batch_1_counts.shape[0]
-        # Zero gradients for every batch
-        optimizer.zero_grad()
-
-        # To do later: include noise sampling here instead of inside the model
-        eps_1 = auxiliary_noise((batch_size, model.latent_dim[2] + model.latent_dim[0]), num_samples) # noise for [z_1, w_1]
-        eps_2 = auxiliary_noise((batch_size, model.latent_dim[2] + model.latent_dim[1]), num_samples) # noise for [z_2, w_2]
-        eps_3 = auxiliary_noise((batch_size, model.latent_dim[0]), num_samples) # noise for w_aux_1
-        eps_4 = auxiliary_noise((batch_size, model.latent_dim[1]), num_samples) # noise for w_aux_2
-
-        # Push data to device ("cuda" or "cpu")
-        input_batch_1_counts = input_batch_1_counts.to(device)
-        input_batch_1_levels = input_batch_1_levels.to(device)
-        input_batch_2_counts= input_batch_2_counts.to(device)
-        input_batch_2_levels = input_batch_2_levels.to(device)
-        eps_1 = eps_1.to(device)
-        eps_2 = eps_2.to(device)
-        eps_3 = eps_3.to(device)
-        eps_4 = eps_4.to(device)
-
-        input_batch = (input_batch_1_counts, input_batch_1_levels, input_batch_2_counts, input_batch_2_levels)
-        eps = (eps_1, eps_2, eps_3, eps_4)
-
-        # Compute the ELBO and its gradients
-        elbo, elbo_1, elbo_2, nll_1, nll_2, kld_1, kld_2 = model.forward(input_batch, eps, beta_kl_warmup_epoch, temp_epoch) # ADDED temp_epoch for weight regularization annealing
-        loss = elbo.mean()
-        loss.backward()
-
-        # Gradient clipping (optional)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-        # Adjust learning weights
-        optimizer.step()
-
-        # Gather data and report
-        running_loss += loss.item()
-        running_elbo_1 += elbo_1.mean().item()
-        running_elbo_2 += elbo_2.mean().item()
-        running_nll_1 += nll_1.mean().item()
-        running_nll_2 += nll_2.mean().item()
-        running_kld_1 += kld_1.mean().item()
-        running_kld_2 += kld_2.mean().item()
-
-        avg_loss += loss.item()
-        avg_elbo_1 += elbo_1.mean().item()
-        avg_elbo_2 += elbo_2.mean().item()
-        avg_nll_1 += nll_1.mean().item()
-        avg_nll_2 += nll_2.mean().item()
-        avg_kld_1 += kld_1.mean().item()
-        avg_kld_2 += kld_2.mean().item()
-
-        num_trained_batches += 1
-
-        if i % 10 == 9:
-            last_loss = running_loss / num_trained_batches  # average loss per batch
-            print(f"   batch {i + 1} loss: {last_loss}")
-            print(f"        ELBO 1: {running_elbo_1 / num_trained_batches}, ELBO 2: {running_elbo_2 / num_trained_batches}")
-            print(f"        NLL 1: {running_nll_1 / num_trained_batches}, NLL 2: {running_nll_2 / num_trained_batches}")
-            print(f"        KLD 1: {running_kld_1 / num_trained_batches}, KLD 2: {running_kld_2 / num_trained_batches}")
-            running_loss = 0
-            running_elbo_1 = 0
-            running_elbo_2 = 0
-            running_nll_1 = 0
-            running_nll_2 = 0
-            running_kld_1 = 0
-            running_kld_2 = 0
-            num_trained_batches = 0
-
-    # avg_loss = avg_loss / len(train_loader.dataset)
-    avg_loss = avg_loss / len(train_loader)
-    avg_elbo_1 = avg_elbo_1 / len(train_loader)
-    avg_elbo_2 = avg_elbo_2 / len(train_loader)
-    avg_nll_1 = avg_nll_1 / len(train_loader)
-    avg_nll_2 = avg_nll_2 / len(train_loader)
-    avg_kld_1 = avg_kld_1 / len(train_loader)
-    avg_kld_2 = avg_kld_2 / len(train_loader)
-
-    return avg_loss, avg_elbo_1, avg_elbo_2, avg_nll_1, avg_nll_2, avg_kld_1, avg_kld_2
-
 def train_vae_embedding_cell_type_classifier_one_epoch(
         model,
         optimizer: Adam,
@@ -815,162 +606,6 @@ def train_marker_gene_classifier_one_epoch(
     avg_loss = avg_loss / len(train_loader)
 
     return avg_loss
-
-
-
-def train_VAE_OLD(
-        model: BetaVAE,
-        optimizer: Adam,
-        dataloaders: Tuple[DataLoader, DataLoader],
-        lr_scheduler: torch.optim.lr_scheduler,
-        num_epochs: int,
-        model_name: str,
-        dataset_name: str,
-        loss_type: str,
-        count_data_included: bool = True,
-        patience: int = 10
-) -> BetaVAE:
-    r"""
-    Given a GeneExpressionVAE or TranscriptUsageVAE, an optimiser, a tuple of training and validation dataloader,
-    the model is trained for num_epochs epochs. The trained model is returned. Also, the loss is plotted and saved as
-    a figure.
-
-    :param model:
-    :param optimizer:
-    :param dataloaders:
-    :param lr_scheduler:
-    :param num_epochs:
-    :param model_name:
-    :param dataset_name:
-    :param loss_type:
-    :param count_data_included:
-    :param patience:
-    :return:
-    """
-    train_loader, val_loader = dataloaders
-    best_val_loss = 100_000_000.
-
-    epoch_train_loss_list = []
-    epoch_train_nll_list = []
-    epoch_train_kld_list = []
-
-    epoch_val_loss_list = []
-    epoch_val_nll_list = []
-    epoch_val_kld_list = []
-
-    num_epochs_wo_improvement = 0
-
-    for epoch in range(num_epochs):
-        print(f"EPOCH {epoch + 1}:")
-
-        # Ensure model is set to training mode
-        model.train(True)
-
-        time_point_0 = time.time()
-        train_loss, train_nll, train_kld = train_VAE_one_epoch(model, optimizer, train_loader, count_data_included)
-
-        # Ensure model is set to evaluation mode
-        model.eval()
-        running_val_loss = 0.0
-        running_val_nll = 0.0
-        running_val_kld = 0.0
-        best_epoch = ""
-
-        # Disable gradient computation and reduce memory consumption
-        with torch.no_grad():
-            for i, val_batch in enumerate(val_loader):
-
-                eps = auxiliary_noise((val_batch[1].shape[0], model.latent_dim))
-
-                if count_data_included:
-                    input_val_batch_counts, input_val_batch_levels, _, _ = val_batch
-
-                    input_val_batch_counts = input_val_batch_counts.to(model.device)
-                    input_val_batch_levels = input_val_batch_levels.to(model.device)
-                    input_val_batch = (input_val_batch_counts, input_val_batch_levels)
-                    eps = eps.to(model.device)
-                else:
-                    _, input_val_batch, _, _ = val_batch
-
-                    input_val_batch = input_val_batch.to(model.device)
-                    eps = eps.to(model.device)
-
-                # Compute model output and loss
-                elbo, kld, nll = model(input_val_batch, eps)
-                # val_loss = elbo.sum(dim=0)
-                val_loss = elbo.mean()
-                running_val_loss += val_loss
-                running_val_nll += nll.mean()
-                running_val_kld += kld.mean()
-
-        # avg_val_loss = running_val_loss / len(val_loader.dataset) # len(val_loader)
-        avg_val_loss = running_val_loss / len(val_loader)
-        avg_val_nll = running_val_nll / len(val_loader)
-        avg_val_kld = running_val_kld / len(val_loader)
-        print(f"LOSS training {train_loss} validation {avg_val_loss}")
-        print(f"       NLL: training {train_nll} validation {avg_val_nll}, KLD: training {train_kld} validation {avg_val_kld}")
-        print(f" TIME needed '{time.time() - time_point_0} seconds")
-
-        epoch_train_loss_list.append(train_loss)
-        epoch_train_nll_list.append(train_nll)
-        epoch_train_kld_list.append(train_kld)
-
-        epoch_val_loss_list.append(avg_val_loss.item())
-        epoch_val_nll_list.append(avg_val_nll.item())
-        epoch_val_kld_list.append(avg_val_kld.item())
-
-        extra_metrics_to_save = {
-            # Training Metrics
-            'train_nll': epoch_train_nll_list,
-            'train_kld': epoch_train_kld_list,
-            # Validation Metrics
-            'val_nll': epoch_val_nll_list,
-            'val_kld': epoch_val_kld_list
-        }
-
-        # Learning rate scheduler
-        if isinstance(lr_scheduler, ReduceLROnPlateau):
-            lr_scheduler.step(avg_val_loss)
-        elif lr_scheduler is not None:
-            lr_scheduler.step()
-
-        # Track best performance, and save the model and training checkpoint
-        if avg_val_loss < best_val_loss:
-            # Delete previous best model to save disk space
-            if best_epoch != "":
-                import os
-                os.remove("./models/" + dataset_name + "_" + model_name + "_epochs_" + best_epoch + '_checkpoint.pth')
-
-            # Save current best model
-            best_epoch = str(epoch + 1)
-            best_val_loss = avg_val_loss
-            num_epochs_wo_improvement = 0
-
-            save_model_checkpoint(
-                model_name,
-                dataset_name,
-                best_epoch,
-                model,
-                optimizer,
-                epoch_train_loss_list,
-                epoch_val_loss_list,
-                **extra_metrics_to_save
-            )
-        else:
-            num_epochs_wo_improvement += 1
-            if num_epochs_wo_improvement == patience:
-                print(f"Early stopping after {patience} epochs without improvement")
-                break
-    plot_loss(
-        epoch_train_loss_list,
-        epoch_val_loss_list,
-        loss_type,
-        dataset_name,
-        model_name,
-        save_fig=True
-    )
-
-    return model
 
 def train_VAE(
         model: BetaVAE,
@@ -1140,7 +775,7 @@ def train_VAE(
     return model
 
 def train_MMVAEplus(
-        model: SCGETUVI,
+        model: TRVI,
         optimizer: Adam,
         dataloaders: Tuple[DataLoader, DataLoader],
         lr_scheduler: torch.optim.lr_scheduler,
@@ -1154,9 +789,9 @@ def train_MMVAEplus(
         num_samples: int = 1,
         device: str = "cuda",
         min_delta: float = 0.0
-) -> SCGETUVI:
+) -> TRVI:
     r"""
-    Given SCGETUVI, an optimizer, a tuple of training and validation dataloader,
+    Given TRVI, an optimizer, a tuple of training and validation dataloader,
     a learning rate scheduler, the model is trained for num_epochs epochs. The trained model is returned. Also,
     the loss is plotted and saved as a figure. The training stops if the validation loss does not improve for a number
     of epochs defined by patience.
@@ -1175,7 +810,7 @@ def train_MMVAEplus(
     :param num_samples: int
     :param device: either "cuda" or "cpu"
     :param min_delta: float, the minimum change in the monitored quantity to qualify as an improvement
-    :return: SCGETUVI
+    :return: TRVI
 
     The training helper `train_MMVAEplus_one_epoch` is assumed to return
     per-sample averages.
@@ -1472,235 +1107,6 @@ def train_MMVAEplus(
     )
 
     return model
-
-
-def train_MMVAEplus_OLD(
-        model: SCGETUVI,
-        optimizer: Adam,
-        dataloaders: Tuple[DataLoader, DataLoader],
-        lr_scheduler: torch.optim.lr_scheduler,
-        num_epochs: int,
-        num_epochs_kl_warmup: int,
-        num_epochs_temp_annealing: int,
-        model_name: str,
-        dataset_name: str,
-        loss_type: str,
-        patience: int = 10,
-        num_samples: int = 1,
-        device: str = "cuda"
-):
-    r"""
-    Given SCGETUVI, an optimizer, a tuple of training and validation dataloader,
-    a learning rate scheduler, the model is trained for num_epochs epochs. The trained model is returned. Also,
-    the loss is plotted and saved as a figure. The training stops if the validation loss does not improve for a number
-    of epochs defined by patience.
-
-    :param model: GeneExpressionTranscriptUsageMMVAEplus
-    :param optimizer: torch.optim.Adam
-    :param dataloaders: torch.utils.data.DataLoader
-    :param lr_scheduler: torch.optim.lr_scheduler
-    :param num_epochs: int
-    :param num_epochs_kl_warmup: int
-    :param num_epochs_temp_annealing: int
-    :param model_name: str
-    :param dataset_name: str
-    :param loss_type: str
-    :param patience: int, number of epochs without improvement before stopping
-    :param num_samples: int
-    :param device: either "cuda" or "cpu"
-    """
-    train_loader, val_loader = dataloaders
-    best_val_loss = 100_000_000.
-    epoch_train_loss_list = []
-    epoch_train_elbo_1_list = []
-    epoch_train_elbo_2_list = []
-    epoch_train_nll_1_list = []
-    epoch_train_nll_2_list = []
-    epoch_train_kld_1_list = []
-    epoch_train_kld_2_list = []
-
-    epoch_val_loss_list = []
-    epoch_val_elbo_1_list = []
-    epoch_val_elbo_2_list = []
-    epoch_val_nll_1_list = []
-    epoch_val_nll_2_list = []
-    epoch_val_kld_1_list = []
-    epoch_val_kld_2_list = []
-
-    num_epochs_wo_improvement = 0
-
-    beta_1_values_kl_warmup = torch.linspace(0.0, model.vae_1.beta, num_epochs_kl_warmup)
-    beta_2_values_kl_warmup = torch.linspace(0.0, model.vae_2.beta, num_epochs_kl_warmup)
-
-    # Annealing of modality weight regularisation starts after KL warm-up
-    temp_init = 0
-    temp_values_kl_warmup = torch.ones(num_epochs_kl_warmup) * temp_init
-    temp_values_annealing = torch.linspace(temp_init, model.temp, num_epochs_temp_annealing)
-    temp_values = torch.cat((temp_values_kl_warmup, temp_values_annealing))
-
-    for epoch in range(num_epochs):
-        print(f"EPOCH {epoch + 1}:")
-
-        # Ensure model is set to training mode
-        model.train(True)
-
-        # Disable training of weighting_encoder during KL warm-up
-        weighting_encoder_params = model.weighting_encoder.parameters()
-        if epoch < num_epochs_kl_warmup:
-            for param in weighting_encoder_params:
-                param.requires_grad = False
-        else:
-            for param in weighting_encoder_params:
-                param.requires_grad = True
-
-        # TO DO: KL WARM UP here
-        beta_1_epoch = beta_1_values_kl_warmup[epoch] if epoch < num_epochs_kl_warmup else model.vae_1.beta
-        beta_2_epoch = beta_2_values_kl_warmup[epoch] if epoch < num_epochs_kl_warmup else model.vae_2.beta
-        beta_kl_warmup_epoch = [beta_1_epoch, beta_2_epoch]
-        temp_epoch = temp_values[epoch] if epoch < len(temp_values) else model.temp
-
-        train_loss, train_elbo_1, train_elbo_2, train_nll_1, train_nll_2, train_kld_1, train_kld_2 = train_MMVAEplus_one_epoch(
-            model,
-            optimizer,
-            train_loader,
-            beta_kl_warmup_epoch,
-            temp_epoch,
-            num_samples,
-            device
-        )
-
-        # Ensure model is set to evaluation mode
-        model.eval()
-        running_val_loss = 0.0
-        running_elbo_1 = 0.0
-        running_elbo_2 = 0.0
-        running_val_nll_1 = 0.0
-        running_val_nll_2 = 0.0
-        running_val_kld_1 = 0.0
-        running_val_kld_2 = 0.0
-
-        # Disable gradient computation and reduce memory consumption
-        with torch.no_grad():
-            for i, val_batch in enumerate(val_loader):
-                # 1 is for gene expression and 2 for transcript usage
-                input_val_batch_1_counts, input_val_batch_1_levels, input_val_batch_2_counts, input_val_batch_2_levels, _, _ = val_batch
-                batch_size = input_val_batch_1_counts.shape[0]
-
-                # Zero gradients for every batch
-                optimizer.zero_grad()
-
-                # To do later: include noise sampling here instead of inside the model
-                eps_1 = auxiliary_noise((batch_size, model.latent_dim[2] + model.latent_dim[0]))  # noise for [z_1, w_1]
-                eps_2 = auxiliary_noise((batch_size, model.latent_dim[2] + model.latent_dim[1]))  # noise for [z_2, w_2]
-                eps_3 = auxiliary_noise((batch_size, model.latent_dim[0]))  # noise for w_aux_1
-                eps_4 = auxiliary_noise((batch_size, model.latent_dim[1]))  # noise for w_aux_2
-
-                # Push data to device ("cpu" or "cuda") if available
-                input_val_batch_1_counts = input_val_batch_1_counts.to(device)
-                input_val_batch_1_levels = input_val_batch_1_levels.to(device)
-                input_val_batch_2_counts = input_val_batch_2_counts.to(device)
-                input_val_batch_2_levels = input_val_batch_2_levels.to(device)
-                eps_1 = eps_1.to(device)
-                eps_2 = eps_2.to(device)
-                eps_3 = eps_3.to(device)
-                eps_4 = eps_4.to(device)
-
-                input_val_batch = (input_val_batch_1_counts, input_val_batch_1_levels, input_val_batch_2_counts, input_val_batch_2_levels)
-                eps = (eps_1, eps_2, eps_3, eps_4)
-
-                # Compute model output and loss
-                elbo, elbo_1, elbo_2, nll_1, nll_2, kld_1, kld_2 = model(input_val_batch, eps, beta_kl_warmup_epoch, temp_epoch)
-                # val_loss = elbo.sum(dim=0)
-                val_loss = elbo.mean()
-
-                running_val_loss += val_loss
-                running_elbo_1 += elbo_1.mean()
-                running_elbo_2 += elbo_2.mean()
-                running_val_nll_1 += nll_1.mean()
-                running_val_nll_2 += nll_2.mean()
-                running_val_kld_1 += kld_1.mean()
-                running_val_kld_2 += kld_2.mean()
-
-        # avg_val_loss = running_val_loss / len(val_loader.dataset) # len(val_loader)
-        avg_val_loss = running_val_loss / len(val_loader)
-        avg_val_elbo_1 = running_elbo_1 / len(val_loader)
-        avg_val_elbo_2 = running_elbo_2 / len(val_loader)
-        avg_val_nll_1 = running_val_nll_1 / len(val_loader)
-        avg_val_nll_2 = running_val_nll_2 / len(val_loader)
-        avg_val_kld_1 = running_val_kld_1 / len(val_loader)
-        avg_val_kld_2 = running_val_kld_2 / len(val_loader)
-
-        print(f"LOSS training {train_loss} validation {avg_val_loss}")
-        print(f"       ELBO 1: {running_elbo_1 / len(val_loader)}, ELBO 2: {running_elbo_2 / len(val_loader)}")
-        print(f"       NLL 1: {running_val_nll_1 / len(val_loader)}, NLL 2: {running_val_nll_2 / len(val_loader)}")
-        print(f"       KLD 1: {running_val_kld_1 / len(val_loader)}, KLD 2: {running_val_kld_2 / len(val_loader)}")
-
-        epoch_train_loss_list.append(train_loss)
-        epoch_train_elbo_1_list.append(train_elbo_1)
-        epoch_train_elbo_2_list.append(train_elbo_2)
-        epoch_train_nll_1_list.append(train_nll_1)
-        epoch_train_nll_2_list.append(train_nll_2)
-        epoch_train_kld_1_list.append(train_kld_1)
-        epoch_train_kld_2_list.append(train_kld_2)
-
-        epoch_val_loss_list.append(avg_val_loss.item())
-        epoch_val_elbo_1_list.append(avg_val_elbo_1.item())
-        epoch_val_elbo_2_list.append(avg_val_elbo_2.item())
-        epoch_val_nll_1_list.append(avg_val_nll_1.item())
-        epoch_val_nll_2_list.append(avg_val_nll_2.item())
-        epoch_val_kld_1_list.append(avg_val_kld_1.item())
-        epoch_val_kld_2_list.append(avg_val_kld_2.item())
-
-        extra_metrics_to_save = {
-            # Training Metrics
-            'train_elbo_1': epoch_train_elbo_1_list,
-            'train_elbo_2': epoch_train_elbo_2_list,
-            'train_nll_1': epoch_train_nll_1_list,
-            'train_nll_2': epoch_train_nll_2_list,
-            'train_kld_1': epoch_train_kld_1_list,
-            'train_kld_2': epoch_train_kld_2_list,
-
-            # Validation Metrics
-            'val_elbo_1': epoch_val_elbo_1_list,
-            'val_elbo_2': epoch_val_elbo_2_list,
-            'val_nll_1': epoch_val_nll_1_list,
-            'val_nll_2': epoch_val_nll_2_list,
-            'val_kld_1': epoch_val_kld_1_list,
-            'val_kld_2': epoch_val_kld_2_list,
-        }
-
-        # Learning rate scheduler
-        if isinstance(lr_scheduler, ReduceLROnPlateau):
-            lr_scheduler.step(avg_val_loss)
-        elif lr_scheduler is not None:
-            lr_scheduler.step()
-
-        # Track best performance, and save the model and training checkpoint
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            num_epochs_wo_improvement = 0
-            save_model_checkpoint(
-                model_name,
-                dataset_name,
-                str(epoch + 1),
-                model,
-                optimizer,
-                epoch_train_loss_list,
-                epoch_val_loss_list,
-                **extra_metrics_to_save
-            )
-        else:
-            num_epochs_wo_improvement += 1
-            if num_epochs_wo_improvement == patience:
-                print(f"Early stopping after {patience} epochs without improvement")
-                break
-    plot_loss(
-        epoch_train_loss_list,
-        epoch_val_loss_list,
-        loss_type, dataset_name,
-        model_name,
-        save_fig=True
-    )
 
 def train_vae_embedding_cell_type_classifier(
         model: LogisticRegressionClassifier,

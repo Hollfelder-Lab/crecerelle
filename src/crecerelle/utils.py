@@ -5,14 +5,18 @@ import numpy as np
 from typing import Tuple, Any, List, Dict
 import torch
 import torch.nn as nn
+
 from scipy.spatial.distance import pdist, squareform
+from scipy.stats import spearmanr, iqr
+import scipy.sparse
+
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader
 import collections
 import pandas as pd
 from anndata import AnnData
 import anndata as ad
-import scipy.sparse
+
 import sklearn
 from sklearn.metrics import roc_curve, auc, f1_score, roc_auc_score, accuracy_score
 from collections import Counter
@@ -21,8 +25,10 @@ import os
 import itertools
 import scanpy as sc
 
+import networkx as nx
+
 # Crecrelle modules
-from .models import SCGETUVI, LogisticRegressionClassifier
+from .models import TRVI, LogisticRegressionClassifier
 from .cell import TABULA_MURIS_CELL_TYPES, TABULA_MURIS_TISSUE_CELL_DICTIONARY
 from .training_utils import train_classifier, train_vae_embedding_cell_type_classifier
 
@@ -459,8 +465,8 @@ def setup_crecerelle(root_directory: str, **kwargs) -> None:
     - root_directory/crecerelle_results/data
     - root_directory/crecerelle_results/figures
     - root_directory/crecerelle_results/models/scVI
-    - root_directory/crecerelle_results/models/scTUVI
-    - root_directory/crecerelle_results/models/scGETUVI
+    - root_directory/crecerelle_results/models/tuVI
+    - root_directory/crecerelle_results/models/TRVI
 
     If a key word argument for the dataset name (dataset_name) is provided, following directories are created in
     addition:
@@ -480,8 +486,8 @@ def setup_crecerelle(root_directory: str, **kwargs) -> None:
         os.path.join(results_dir, "data"),
         os.path.join(results_dir, "figures"),
         os.path.join(results_dir, "models", "scVI"),
-        os.path.join(results_dir, "models", "scTUVI"),
-        os.path.join(results_dir, "models", "scGETUVI"),
+        os.path.join(results_dir, "models", "tuVI"),
+        os.path.join(results_dir, "models", "TRVI"),
     ]
 
     # Check if dataset_name was provided in kwargs
@@ -551,6 +557,7 @@ def rank_intron_groups_groups(adata: AnnData, diff_spl_intron_groups: pd.DataFra
     gene_names_array_list = []
     gene_names_list_dtype = []
 
+    """
     for i in range(len(test_groups)):
         logfoldchanges_array_list.append(logfoldchanges[:, i])
         logfoldchanges_list_dtype.append((str(i), np.float64))
@@ -562,6 +569,20 @@ def rank_intron_groups_groups(adata: AnnData, diff_spl_intron_groups: pd.DataFra
         names_list_dtype.append((str(i), object))
         gene_names_array_list.append(gene_names[:, i])
         gene_names_list_dtype.append((str(i), object))
+    """
+
+    for i, test_group in enumerate(test_groups):
+        logfoldchanges_array_list.append(logfoldchanges[:, i])
+        logfoldchanges_list_dtype.append((test_group, np.float64))
+        pvals_array_list.append(pvals[:, i])
+        pvals_list_dtype.append((test_group, np.float64))
+        pvals_adj_array_list.append(pvals_adj[:, i])
+        pvals_adj_list_dtype.append((test_group, np.float64))
+        names_array_list.append(names[:, i])
+        names_list_dtype.append((test_group, object))
+        gene_names_array_list.append(gene_names[:, i])
+        gene_names_list_dtype.append((test_group, object))
+
 
     # Create record arrays from pvals, pvals_adj, names
     logfoldchanges_rec = np.rec.fromarrays(
@@ -924,12 +945,12 @@ def determine_zanidm_cases(
         num_cases_dict["case_3"] += num_case_d_1.item()
         num_cases_dict["case_4"] += num_case_d_2.item()
 
-        print(
-                f"Case all nonzero: The number of case x_j > 0 and N > 0 is {num_cases_dict['case_1']}. \n"
-                f"Case all zero: The number of case x = 0 and N = 0 is {num_cases_dict['case_2']}. \n"
-                f"Case one nonzero: The number of case d - 1 categories are zero and N > 0 is {num_cases_dict['case_3']}. \n"
-                f"Case subsets are zero: The number of case d - 2 categories are zero and N > 0 is {num_cases_dict['case_4']}."
-        )
+    print(
+        f"Case all nonzero: The number of case x_j > 0 and N > 0 is {num_cases_dict['case_1']}. \n"
+        f"Case all zero: The number of case x = 0 and N = 0 is {num_cases_dict['case_2']}. \n"
+        f"Case one nonzero: The number of case d - 1 categories are zero and N > 0 is {num_cases_dict['case_3']}. \n"
+        f"Case subsets are zero: The number of case d - 2 categories are zero and N > 0 is {num_cases_dict['case_4']}."
+    )
 
     return num_cases_dict
 
@@ -1003,6 +1024,417 @@ def distance_matrix(
     emb_distance_matrix = squareform(condensed_distance_matrix)
 
     return emb_distance_matrix, cluster_annotations
+
+def calculate_distance_matrices_across_seeds(
+    adata: AnnData,
+    seeds: List[int],
+    latent_mean_key: str,
+    likelihood_keys: List[str],
+    cluster_key: str,
+    average_embeddings: bool = True,
+) -> Tuple[List[np.ndarray], np.ndarray]:
+    r"""
+    Given an AnnData object where cell embeddings have been inferred and added to .obsm[embedding_key], compute the
+    distance matrices between the cell embeddings for each seed. The cells shall be ordered according to the cluster_key
+    (e.g. cell type, Leiden cluster). If the number of cells is too large, it is recommended to average the embeddings
+    and calculate the distance matrix per cluster. The distance metric can be chosen but at the moment only supports
+    Euclidean distance. A list of np.ndarray containing the distance matrices and an np.ndarray containing the order of
+    the cells according to cluster_key are returned.
+
+    :param adata: AnnData object
+    :param seeds: List of seeds for which to calculate the distance matrices
+    :param latent_mean_key: str specifying the key for the latent mean embeddings in .obsm (e.g. "latent_mean", "private_latent_mean", "shared_latent_mean")
+    :param likelihood_keys: List of str specifying the keys for the likelihood embeddings (e.g. ["ZINB"], ["ZIDM"], ["ZINB", "ZIDM"])
+    :param cluster_key: str specifying the key for the cluster annotations in .obs (e.g. "cell_ontology_class")
+    :param average_embeddings: bool specifying whether to average embeddings before calculating distance matrix
+    :return: Tuple containing a list of np.ndarray distance matrices and an np.ndarray of cluster annotations
+    """
+    distance_matrices = []
+
+    for seed_selected in seeds:
+
+        if len(likelihood_keys) == 1:
+            cell_embedding_key = likelihood_keys[0] + "_" + str(seed_selected) + "_" + latent_mean_key
+        elif len(likelihood_keys) == 2:
+            cell_embedding_key = likelihood_keys[0] + "_" + str(seed_selected) + "_" + likelihood_keys[1] + "_"  + str(seed_selected) + "_" + latent_mean_key
+        else:
+            raise ValueError
+
+        emb_distance_matrix, cluster_annotations = distance_matrix(
+              adata,
+              cell_embedding_key,
+              cluster_key,
+              average_embeddings
+        )
+
+        upper_triangular_distance_matrix = np.triu(emb_distance_matrix)
+
+        distance_matrices.append(upper_triangular_distance_matrix)
+
+    print(f"The distance matrices of the embeddings each of shape {emb_distance_matrix.shape} have been computed.")
+
+    return distance_matrices, cluster_annotations
+
+def calculate_latent_space_geometry(
+    distance_matrices: List[np.ndarray],
+    cluster_annotation: np.ndarray,
+    lineage_mapping: Dict[str, str],
+) -> Dict[str, Any]:
+    r"""
+    Calculate the geometry of the latent space based on the provided distance matrices and cluster annotations.
+
+    The seed similarity matrix measures using the Spearman correlation how well the latent space geometry is preserved across
+    different random seeds. It is calculated for every pair of seeds :math:`(s,t)` as the Spearman correlation
+
+    ..math::
+        R_{s,t} = \rho_{Spearman}(\mathbf{x}^{(s)}, \mathbf{x}^{(t)})
+
+    of their upper triangular distance matrices stacked into 1D arrays :math:`\mathbf{x}^{(s)}` and
+    :math:`\mathbf{x}^{(t)}`.
+
+    The consensus distance matrix :math:`\mathbf{D}_{\text{cons}} \in \mathbb{R}^{n \times n}` assesses the distance agreement across seeds and is calculated as the median of the
+    normalised distance matrices across seeds :math:`s`
+
+    ..math::
+        D_{ij}^{cons} = median_s \widetilde{D}_{ij}^{(s)}
+
+    where :math:`\widetilde{D}_{ij}^{(s)}` is the normalised distance matrix for seed :math:`s` and cell types :math:`i`
+    and :math:`j`. It is normalised by the median of the off-diagonal distances for each seed :math:`s` to account for
+    differences in scale across seeds. The consensus distance matrix should be evaluated in conjunction with the
+    interquartile range matrix :math:`\mathbf{U} \in \mathbb{R}^{n \times n}` which is calculated for each pair
+    :math:`(i,j)` as the interquartile range of the normalised distances across seeds :math:`s` as
+
+    ..math::
+        U_{ij} = Q_{0.75}(\widetilde{D}_{ij}^{(0)}, \dots, \widetilde{D}_{ij}^{(S)}) -  Q_{0.25}(\widetilde{D}_{ij}^{(0)}, \dots, \widetilde{D}_{ij}^{(S)})
+
+    Read jointly for a pair of cell types :math:`(i,j)`, the consensus distance matrix and the interquartile range
+    matrix indicate: large distance, small iqr means reproducibly separated; small distance, small iqr means
+    reproducibly close; large distance, large iqr means inconsistent separation dependent on the seed.
+
+    :param distance_matrices: List of np.ndarray distance matrices for each seed
+    :param cluster_annotation: np.ndarray of cluster annotations for the cells
+    :param lineage_mapping: Dict mapping cluster annotations to their respective lineages
+    :return: Dict containing the latent space geometry metrics
+
+    """
+    # Calculate raw fingerprint distances
+    num_seeds = len(distance_matrices)
+
+    num_cell_types = distance_matrices[0].shape[0]
+    num_elements_upper_triangle = int(num_cell_types * (num_cell_types - 1) / 2)
+
+    raw_fingerprint_distances = np.zeros((num_seeds, num_elements_upper_triangle))
+
+    # Get upper triangle index coordinates once (k=1 excludes diagonal)
+    triu_indices = np.triu_indices(num_cell_types, k=1)
+
+    for i, distance_matrix in enumerate(distance_matrices):
+        raw_fingerprint_distances[i] = distance_matrix[triu_indices]
+
+    # Calculate median across pairs for each seed (axis=1)
+    median_off_diagonal_distances = np.median(raw_fingerprint_distances, axis=1)
+
+    # Normalised distance matrices (by median off diagonal distances per seed)
+    normalised_distance_matrices = []
+    for i, distance_matrix in enumerate(distance_matrices):
+        normalised_distance_matrix = distance_matrix / median_off_diagonal_distances[i]
+        normalised_distance_matrices.append(normalised_distance_matrix)
+
+    # Normalised fingerprint distances
+    normalised_fingerprint_distances = np.zeros((num_seeds, num_elements_upper_triangle))
+
+    for i, normalised_distance_matrix in enumerate(normalised_distance_matrices):
+        normalised_fingerprint_distances[i] = normalised_distance_matrix[triu_indices]
+
+    # Seed similarity matrix
+    seed_similarity_matrix = np.ones((num_seeds, num_seeds)) # Pre-fill with 1s for the diagonal
+
+    # 1. Optimize the loop: calculate only the upper triangle to halve computation time
+    for i in range(num_seeds):
+        for j in range(i + 1, num_seeds):
+            corr = spearmanr(distance_matrices[i].flatten(), distance_matrices[j].flatten())[0]
+            seed_similarity_matrix[i, j] = corr
+            seed_similarity_matrix[j, i] = corr # Mirror to lower half for the heatmap
+
+    # 2. Extract ONLY the off-diagonal upper triangular values into a 1D array
+    # k=1 ensures we skip the diagonal (self-correlations of 1.0)
+    pairwise_correlations = seed_similarity_matrix[np.triu_indices_from(seed_similarity_matrix, k=1)]
+
+    # 3. Calculate statistics on just the valid pairwise correlations
+    median_pairwise_seed_similarity = np.median(pairwise_correlations)
+    lower_pairwise_seed_similarity = np.min(pairwise_correlations)
+    upper_pairwise_seed_similarity = np.max(pairwise_correlations)
+
+    # Stacked distance matrices (full not upper triangular)
+    distance_matrices = [U + U.T - np.diag(np.diag(U)) for U in distance_matrices]
+    distance_matrices_tensor = np.stack(distance_matrices, axis=0) # (num seeds x num cell types x num cell types)
+
+    # Stacked normalised distance matrices (full not upper triangular)
+    normalised_distance_matrices_full = [U + U.T - np.diag(np.diag(U)) for U in normalised_distance_matrices]
+    normalised_distance_matrices_tensor = np.stack(normalised_distance_matrices_full, axis=0) # (num seeds x num cell types x num cell types)
+
+    # Reorder stacked normalised distance matrices according to cell lineage
+    # By default the order of the lineage mapping is preserved
+    annotation_order = list(lineage_mapping.keys())
+    cluster_map = {name: i for i, name in enumerate(cluster_annotation)}
+    reorder_idx = [cluster_map[cell_type] for cell_type in annotation_order]
+
+    reordered_normalised_distance_matrices = normalised_distance_matrices_tensor[:, reorder_idx, :][:, :, reorder_idx]
+    reordered_distance_matrices = distance_matrices_tensor[:, reorder_idx, :][:, :, reorder_idx]
+
+    # Reorder cluster annotations according to cell lineage
+    cluster_annotations_reordered = np.array(annotation_order)
+
+    # Median across seed dimension
+
+    consensus_distance_matrix = np.median(
+        reordered_normalised_distance_matrices,
+        axis=0,
+    )
+
+    # Interquartile range matrix (0.25 -- 0.75)
+    interquartile_range_matrix = iqr(reordered_normalised_distance_matrices, axis=0, rng=(25, 75))
+
+    latent_space_geometry = {
+        "raw_fingerprint_distances": raw_fingerprint_distances,
+        "median_off_diagonal_distances": median_off_diagonal_distances,
+        "normalised_distance_matrices": normalised_distance_matrices,
+        "normalised_fingerprint_distances": normalised_fingerprint_distances,
+        "seed_similarity_matrix": seed_similarity_matrix,
+        "pairwise_correlations": pairwise_correlations,
+        "median_pairwise_seed_similarity": median_pairwise_seed_similarity,
+        "lower_pairwise_seed_similarity": lower_pairwise_seed_similarity,
+        "upper_pairwise_seed_similarity": upper_pairwise_seed_similarity,
+        "distance_matrices_tensor": distance_matrices_tensor,
+        "normalised_distance_matrices_tensor": normalised_distance_matrices_tensor,
+        "reordered_normalised_distance_matrices": reordered_normalised_distance_matrices,
+        "reordered_distance_matrices": reordered_distance_matrices,
+        "consensus_distance_matrix": consensus_distance_matrix,
+        "interquartile_range_matrix": interquartile_range_matrix,
+        "cluster_annotations_reordered": cluster_annotations_reordered,
+        "lineage_order": annotation_order,
+    }
+
+    return latent_space_geometry
+
+def construct_undirected_knn_graph(
+    distance_matrix_for_graph: np.ndarray,
+    k: int=5,
+    mode: str="mutual",
+    cell_type_labels: np.ndarray=None,
+    weighted: bool=False
+) -> Tuple[np.ndarray, nx.Graph]:
+    r"""
+    Constructs an undirected k-NN adjacency matrix and NetworkX Graph from a distance matrix.
+
+    :param distance_matrix_for_graph: Square symmetric distance matrix (NumPy array)
+    :param k: Number of nearest neighbors
+    :param mode: 'union' (OR rule: edge exists if either is in top-k) or 'mutual' (AND rule: edge exists only if both are in each other's top-k)
+    :param cell_type_labels: Optional list of node labels
+    :param weighted: If True, edge weights store the actual distances
+    :return: Tuple containing the undirected adjacency matrix and the NetworkX Graph
+    """
+
+    D = (
+        distance_matrix_for_graph.values
+        if hasattr(distance_matrix_for_graph, "values")
+        else np.asarray(distance_matrix_for_graph)
+    )
+    N = D.shape[0]
+
+    # 1. Identify top k neighbors for each cell (skip index 0, which is self-distance)
+    nn_indices = np.argsort(D, axis=1)[:, 1 : k + 1]
+
+    # 2. Build directed adjacency matrix
+    row_indices = np.arange(N)[:, None]
+    adj_directed = np.zeros((N, N), dtype=float)
+
+    if weighted:
+        adj_directed[row_indices, nn_indices] = D[row_indices, nn_indices]
+    else:
+        adj_directed[row_indices, nn_indices] = 1.0
+
+    # 3. Symmetrize matrix to make the graph undirected
+    if mode == "union":
+        adj_undirected = np.maximum(adj_directed, adj_directed.T)
+    elif mode == "mutual":
+        adj_undirected = np.minimum(adj_directed, adj_directed.T)
+    else:
+        raise ValueError("mode must be either 'union' or 'mutual'")
+
+    # 4. Create NetworkX Undirected Graph (nx.Graph)
+    G = nx.from_numpy_array(adj_undirected, create_using=nx.Graph)
+
+    if cell_type_labels is not None:
+        label_mapping = {i: label for i, label in enumerate(cell_type_labels)}
+        G = nx.relabel_nodes(G, label_mapping)
+
+    return adj_undirected, G
+
+
+# Example Usage:
+# adj_mat, G = construct_undirected_knn_graph(
+#     consensus_distance_matrix,
+#     k=5,
+#     mode='union', # or 'mutual'
+#     cell_type_labels=cell_lineage_order
+# )
+
+def compute_neighbour_retention(
+    distance_matrices_stacked: np.ndarray,
+    k: int=5,
+    cell_labels: np.ndarray=None
+) -> pd.DataFrame:
+    r"""
+    Calculates the cell-type specific reference-free neighbor retention score :math:`R_i^(k)`. The score asses if a
+    cell type  math:`i` retains its math:`k` nearest neighbors across different random seeds. For cell type  math:`i` of
+    all  math:`N`cell types, compare it k-neighbor sets across all
+
+    ..math::
+        Rn_{sets} =
+            \left(
+                \begin{matrix}
+                    S \\
+                    2
+                \end{matrix}
+            \right)
+
+    pairs of seeds. For seeds  math:`(s,t), compute the intersection of the k-nearest neighbor sets`
+
+    ..math::
+        O_i^{(s, t, k)} = \frac{|N_i^{(s, k)} \cap N_i^{(t, k)}|}{k}.
+
+    The retention score is then the average of the intersection over all seed pairs given by
+
+    ..math::
+            R_i^{(k)} = \frac{1}{n_{sets}} \sum_{s < t} O_i^{(s, t, k)}
+
+    For ten seeds, if the retention score is 0.8, it means that on average 80% of the k-nearest neighbors of cell type i
+    are retained across all seed pairs. As a baseline, the expected intersection of two random k-nearest neighbor sets
+    is given by
+
+    ..math::
+        \mathbb{E}[O_i] = \frac{k}{N-1}
+
+    indicating chance level retention. The retention score is expected to be above the chance level if the local
+    neighbors are preserved across seeds.
+
+    :param distance_matrices_stacked: np.ndarray of shape (S, N, N) across S seeds.
+    :param k: Number of nearest neighbors.
+    :param cell_labels: Optional list of N cell type names.
+    :return: pandas DataFrame with cell type scores and chance baseline.
+    """
+    S, N, _ = distance_matrices_stacked.shape
+
+    if S < 2:
+        raise ValueError(
+            "At least S >= 2 seeds are required to compare seed pairs."
+        )
+
+    # 1. Identify top k neighbors per seed and cell type (excluding self-distance at index 0)
+    knn_indices = np.argsort(distance_matrices_stacked, axis=2)[
+        :, :, 1 : k + 1
+    ]
+
+    # 2. Construct boolean indicator tensor of shape (S, N, N) using put_along_axis
+    is_neighbor = np.zeros((S, N, N), dtype=bool)
+    np.put_along_axis(is_neighbor, knn_indices, True, axis=2)
+
+    # 3. Vectorized intersection count via batch matrix multiplication: (N, S, N) @ (N, N, S) -> (N, S, S)
+    is_neighbor_by_cell = np.transpose(is_neighbor, (1, 0, 2))
+    overlap_matrices = np.matmul(
+        is_neighbor_by_cell, np.transpose(is_neighbor_by_cell, (0, 2, 1))
+    )
+
+    # 4. Extract pair intersections s < t
+    triu_s, triu_t = np.triu_indices(S, k=1)
+    pairwise_overlaps = overlap_matrices[
+        :, triu_s, triu_t
+    ]  # Shape: (N, n_sets)
+
+    # 5. Compute retention score R_i^(k) by averaging over seed pairs and normalizing by k
+    R = np.mean(pairwise_overlaps, axis=1) / k
+
+    # 6. Chance expectation baseline E[O_i]
+    expected_baseline = k / (N - 1)
+
+    # 7. Return formatted DataFrame
+    if cell_labels is None:
+        cell_labels = [f"Cell_Type_{i}" for i in range(N)]
+
+    df = pd.DataFrame(
+        {
+            "cell_type": cell_labels,
+            f"retention_score_k{k}": R,
+            "expected_baseline": expected_baseline,
+            "above_baseline": R > expected_baseline,
+        }
+    )
+
+    #return df.sort_values(by=f"retention_score_k{k}", ascending=False).reset_index(drop=True)
+    return df
+
+def calculate_adjacency_and_edge_support_of_knn_graph(
+    reordered_distance_matrices: np.ndarray,
+    k: int = 5,
+    mode: str = "mutual",
+    cell_type_labels: np.ndarray = None,
+    weighted: bool = False,
+) -> Tuple[np.ndarray, np.ndarray]:
+    r"""
+    Computes k-NN binary adjacency matrices for each seed and consensus edge support matrix across seeds.
+
+    :param reordered_distance_matrices: np.ndarray of shape (S, N, N) across S seeds.
+    :param k: int, number of nearest neighbors (excludes diagonal self-distance).
+    :param mode: str, 'mutual' (AND condition), 'union' (OR condition), or 'directed'.
+    :param cell_type_labels: list or array of N cell type names (optional).
+    :param weighted: bool, whether to weight individual adjacency edges by inverse distance.
+    :return: Tuple containing the adjacency matrices and edge support matrix.
+    """
+
+    S, N, _ = reordered_distance_matrices.shape
+
+    # 1. Identify top k nearest neighbors per seed (indices 1 to k+1 exclude self at index 0)
+    knn_indices = np.argsort(reordered_distance_matrices, axis=2)[
+        :, :, 1 : k + 1
+    ]
+
+    # 2. Build 3D directed indicator tensor (S x N x N)
+    adj_matrices = np.zeros((S, N, N), dtype=float)
+    np.put_along_axis(adj_matrices, knn_indices, 1.0, axis=2)
+
+    # 3. Enforce graph symmetry mode
+    if mode == "mutual":
+        adj_matrices = adj_matrices * np.transpose(adj_matrices, (0, 2, 1))
+    elif mode in ["union", "undirected"]:
+        adj_matrices = np.maximum(
+            adj_matrices, np.transpose(adj_matrices, (0, 2, 1))
+        )
+    elif mode == "directed":
+        pass
+    else:
+        raise ValueError(
+            f"Invalid mode '{mode}'. Choose 'mutual', 'union', or 'directed'."
+        )
+
+    # 4. Optional distance weighting
+    if weighted:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            inv_dist = np.where(
+                reordered_distance_matrices > 0,
+                1.0 / reordered_distance_matrices,
+                0.0,
+            )
+        adj_matrices = adj_matrices * inv_dist
+
+    # 5. Compute mean edge persistence across the seed dimension (S)
+    binary_presence = (adj_matrices > 0).astype(float) if weighted else adj_matrices
+    edge_support = np.mean(binary_presence, axis=0)
+
+    # Ensure zero diagonal
+    np.fill_diagonal(edge_support, 0.0)
+
+    return adj_matrices, edge_support
 
 
 def split_adata_dataset(
@@ -1640,7 +2072,7 @@ def run_random_seed_evaluation_VAE(
         if data_modality == "Gene expression":
             model_name = "geneExpression" + observation_model + "VAE" + "_" + str(seed) + "_Beta_" + beta_str
         elif data_modality == "Transcript usage":
-            model_name = "scTUVI_" + observation_model + "_" + str(seed) + "_Beta_" + beta_str
+            model_name = "tuVI_" + observation_model + "_" + str(seed) + "_Beta_" + beta_str
         else:
             raise ValueError("data_modality must be either 'Gene expression' or 'Transcript usage'.")
 
@@ -1681,8 +2113,8 @@ def run_random_seed_evaluation_VAE(
 
     return adata
 
-def run_random_seed_evaluation_SCGETUVI(
-        model: SCGETUVI,
+def run_random_seed_evaluation_TRVI(
+        model: TRVI,
         likelihoods: List[str],
         beta_str: str,
         list_of_random_seeds: List[int],
@@ -1697,13 +2129,13 @@ def run_random_seed_evaluation_SCGETUVI(
         batch_size: int = 256,
 ) -> Tuple[AnnData, AnnData]:
     r"""
-    Given a trained model (scGETUVI), a list of random seeds, a list of epoch checkpoints, a Tuple of AnnData objects,
+    Given a trained model (TRVI), a list of random seeds, a list of epoch checkpoints, a Tuple of AnnData objects,
     infer for each random seed and epoch checkpoint the latent mean embeddings, the two UMAP dimensions, and the data
     reconstructions for both data modalities. The latent mean embeddings and the UMAP embeddings are both added as
     .obsm to the given AnnData object. The data reconstructions are added as an additional layer. The edited AnnData
     object is returned.
 
-    :param model: (scGETUVI)
+    :param model: (TRVI)
     :param likelihoods: (List[str])
     :param beta_str: (str)
     :param list_of_random_seeds: (List[int]) List of random seeds
@@ -1728,8 +2160,8 @@ def run_random_seed_evaluation_SCGETUVI(
         likelihood_1_seed = likelihoods[0] + "_" + str(seed)
         likelihood_2_seed = likelihoods[1] + "_" + str(seed)
 
-        # Nomenclature scGETUVI + seed + likelihood 1 + likelihood 2 + beta
-        model_name = "scGETUVI_" + str(seed) + "_" + likelihoods[0] + "_" + likelihoods[1] + "_" + beta_str
+        # Nomenclature TRVI + seed + likelihood 1 + likelihood 2 + beta
+        model_name = "TRVI_" + str(seed) + "_" + likelihoods[0] + "_" + likelihoods[1] + "_" + beta_str
 
         #+ "_epochs_" + str(list_of_epoch_checkpoints[i]) + "_checkpoint.pth"
 
@@ -1744,7 +2176,7 @@ def run_random_seed_evaluation_SCGETUVI(
         if torch.cuda.is_available():
             model = model.to(device)
 
-        adata = inference_scgetuvi(
+        adata = inference_trvi(
             adata=adata,
             dataset=dataset,
             model=model,
@@ -1755,6 +2187,102 @@ def run_random_seed_evaluation_SCGETUVI(
 
     return adata
 
+def create_differential_analysis_distriubtion_df(
+        adata: AnnData,
+        cluster_group: str,
+        top_genes: List[str],
+        transcriptomic_facet: str,
+        **kwargs
+) -> pd.DataFrame:
+    r"""
+    Calculate for either a set of genes or a set of isoforms of a cluster group, the distribution of expression levels
+    or PSI scores, respectively, and return a DataFrame in long format.
+    :param adata: (AnnData)
+    :param cluster_group: (str)
+    :param top_genes: (List[str])
+    :param transcriptomic_facet: (str)
+    """
+
+    if transcriptomic_facet == "Gene expression":
+        gene_in_group = "DEG group " + cluster_group + " vs other"
+        var_name = 'Gene'
+        value_name = 'Expression'
+        value_matrix = adata[:, top_genes].X.todense() if 'sparse' in str(type(adata.X)) else adata[:, top_genes].X
+    elif transcriptomic_facet == "Transcript usage":
+        gene_in_group = "DSG group " + cluster_group + " vs other"
+        var_name = 'Isoform'
+        value_name = 'PSI-score'
+        value_matrix = np.array(adata[:, top_genes].layers["PSI_raw"])
+    else:
+        raise ValueError("transcriptomic_facet must be either 'Gene expression' or 'Transcript usage'.")
+    # DSG expression levels for violin plots
+    groups_indices = adata.obs["leiden"].to_numpy()
+    not_differential_group = "other"
+    differential_group_indices = np.argwhere(groups_indices == cluster_group)
+    not_differential_group_indices = np.argwhere(groups_indices != cluster_group)
+
+    gene_in_group_values = np.zeros(adata.n_obs, dtype=object)
+    gene_in_group_values[differential_group_indices] = "target"  # group_id_GE
+    gene_in_group_values[not_differential_group_indices] = not_differential_group
+    adata.obs[gene_in_group] = gene_in_group_values
+
+    distribution_df = pd.DataFrame(value_matrix, columns=top_genes)
+    distribution_df['Group'] = adata.obs[gene_in_group].to_numpy()
+    distribution_df_long = pd.melt(distribution_df, id_vars=['Group'], value_vars=top_genes, var_name=var_name,
+                              value_name=value_name)
+
+    return distribution_df_long
+
+def create_cell_type_groups_relevance_weight_df(
+        adata_objects: Tuple[AnnData, AnnData],
+        weighting_keys: List[str],
+        cell_type_groups_key: str,
+        cell_org_hierarchy_dictionary: dict | None = None,
+        save_cell_type_groups_relevance_weight_df: bool = True,
+        **kwargs
+) -> pd.DataFrame:
+    r"""
+    Given gene expression and AS-induced transcript usage data as tuple of AnnData objects, a list of weighting keys for
+    each data modality, a cell type groups key, and an optional cell ontology hierarchy dictionary, calculate the mean
+    relevance weights for each cell type group and return a DataFrame in long format. Optionally save the DataFrame as
+    a CSV file.
+
+    :param adata_objects: (AnnData) Tuple of AnnData objects for gene expression and transcript usage data
+    :param weighting_keys: (List[str]) List of weighting keys for each data modality
+    :param cell_type_groups_key: (str) Key for cell type groups in AnnData
+    :param cell_org_hierarchy_dictionary: (dict | None) Optional dictionary for cell ontology hierarchy
+    :param save_cell_type_groups_relevance_weight_df: (bool) Whether to save the DataFrame as a CSV file
+    :return: (pd.DataFrame) DataFrame containing mean modality-relevance weights for each cell type group in long format
+    """
+
+    adata_1 = adata_objects[0]
+    adata_2 = adata_objects[1]
+
+    weighting_key_1 = weighting_keys[0]
+    weighting_key_2 = weighting_keys[1]
+
+    cell_type_group_1_weighting_df = adata_1.obs.groupby(cell_type_groups_key)[weighting_key_1].mean().to_frame()
+    cell_type_group_2_weighting_df = adata_2.obs.groupby(cell_type_groups_key)[weighting_key_2].mean().to_frame()
+
+    cell_type_group_1_weighting_df.rename(columns={weighting_key_1: "GE weight"}, inplace=True)
+    cell_type_group_2_weighting_df.rename(columns={weighting_key_2: "TU weight"}, inplace=True)
+
+    cell_type_group_weighting_df = pd.concat([cell_type_group_1_weighting_df, cell_type_group_2_weighting_df], axis=1)
+
+    if cell_org_hierarchy_dictionary is not None:
+        all_cell_type_groups = list(adata_1.obs[cell_type_groups_key].unique())
+        sorted_cell_type_groups = sorted(all_cell_type_groups, key=lambda x: (cell_org_hierarchy_dictionary.get(x, "Unknown"), x))
+        cell_type_group_weighting_df = cell_type_group_weighting_df.reindex(sorted_cell_type_groups)
+
+    cell_type_groups_weights_df = cell_type_group_weighting_df.reset_index().rename(columns={'index': cell_type_groups_key})
+    cell_type_groups_weights_df = cell_type_groups_weights_df.melt(id_vars=cell_type_groups_key, var_name='Weight Type', value_name='Weight')
+
+    if save_cell_type_groups_relevance_weight_df:
+        dataset_name = kwargs.get("dataset_name", "default")
+        cell_type_groups_weights_df.to_csv("./data/" + dataset_name + "/trvi_cell_type_groups_weights.csv", index=False)
+
+    return cell_type_groups_weights_df
+
 
 def run_functional_enrichment_analysis(
     gene_types: str,
@@ -1764,8 +2292,8 @@ def run_functional_enrichment_analysis(
     organism: str = "mmusculus"
 ) -> pd.DataFrame:
     r"""
-    Given a type of differentially analysed genes(eihter "DEG" or "DSG" ), an optional tissue, the number of highly
-    variable genes, and a path to the stored Anndata files, load the Anndata objects, extract the top DEGS or DSGs for
+    Given a type of differentially analysed genes(either "DEG" or "DSG" ), an optional tissue, the number of highly
+    variable genes, and a path to the stored Anndata files, load the Anndata objects, extract the top DEGs or DSGs for
     each tissue, run functional enrichment analysis using gprofile,and return the enriched terms as a DataFrame.
 
     :param gene_types: str specifying the type of differentially analysed genes, either "DEG" for differentially expressed genes or "DSG" for differentially spliced genes
@@ -1783,9 +2311,9 @@ def run_functional_enrichment_analysis(
         raise ValueError("gene_types must be either 'DEG' or 'DSG'.")
 
     if tissue is not None:
-        path2adata = path2data + "adata_" + modality + "_" + str(num_hvg) + "_" + tissue + "_scgetuvi_inference.h5ad"
+        path2adata = path2data + "adata_" + modality + "_" + str(num_hvg) + "_" + tissue + "_trvi_inference.h5ad"
     else:
-        path2adata = path2data + "adata_" + modality + "_" + str(num_hvg) + "_scgetuvi_inference.h5ad"
+        path2adata = path2data + "adata_" + modality + "_" + str(num_hvg) + "_trvi_inference.h5ad"
 
     # Assert if adata exists and load it
     assert os.path.exists(path2adata), "The specified Anndata file does not exist. Please check the path and file name."
@@ -1834,13 +2362,35 @@ def run_functional_enrichment_analysis(
         raise ValueError("gene_types must be either 'DEG' or 'DSG'.")
 
     # Run functional enrichment analysis using gprofile
-    print(f"Using the following list of {len(unique_sig_diff_genes)} {gene_types}s for functional enrichment analysis: {unique_sig_diff_genes}")
+    #print(f"Using the following list of {len(unique_sig_diff_genes)} {gene_types}s for functional enrichment analysis: {unique_sig_diff_genes}")
 
-    enrichment_results_df = sc.queries.enrich(unique_sig_diff_genes, org=organism)
+    #enrichment_results_df = sc.queries.enrich(unique_sig_diff_genes, org=organism)
+
+    # Run functional enrichment analysis using g:Profiler
+    print(
+        f"Using the following list of {len(unique_sig_diff_genes)} "
+        f"{gene_types}s for functional enrichment analysis: "
+        f"{unique_sig_diff_genes}"
+    )
+
+    enrichment_results_df = sc.queries.enrich(
+        unique_sig_diff_genes,
+        org=organism,
+        gprofiler_kwargs={"no_evidences": False}
+    )
+
+    enrichment_results_df = enrichment_results_df.rename(
+        columns={"intersections": "matched_genes"}
+    )
+
+    enrichment_results_df["matched_genes"] = (
+        enrichment_results_df["matched_genes"]
+        .apply(lambda genes: "; ".join(genes))
+    )
 
     return enrichment_results_df
 
-def determine_shared_unique_deg_dsg_pathways(
+def determine_shared_unique_deg_dsg_terms(
     deg_enrichment_results_df: pd.DataFrame,
     dsg_enrichment_results_df: pd.DataFrame,
     tissue: str | None = None,
@@ -1850,52 +2400,98 @@ def determine_shared_unique_deg_dsg_pathways(
     r"""
     Given two pandas DataFrames containing the functional enrichment results for DEGs and DSGs respectively, an optional
     tissue, and whether to save the resulting three dataframes as csv files, determine the shared and unique
-    significantly enriched pathways for DEGs and DSGs, and return three DataFrames containing the shared and unique
-    pathways.
+    significantly enriched terms for DEGs and DSGs, and return three DataFrames containing the shared and unique
+    enrichment terms.
 
     :param deg_enrichment_results_df: (pd.DataFrame) DataFrame containing the functional enrichment results for DEGs
     :param dsg_enrichment_results_df: (pd.DataFrame) DataFrame containing the functional enrichment results for DSGs
-    :param tissue: (str | None) The tissue to determine the shared and unique pathways for, if None, determine for all tissues
+    :param tissue: (str | None) The tissue to determine the shared and unique enrichment terms for, if None, determine for all tissues
     :param save_df: (bool) Whether to save the resulting three DataFrames as csv files
-    :return: Tuple[pd.DataFrame] containing the shared and unique pathways for DEGs and DSGs
+    :return: Tuple[pd.DataFrame] containing the shared and unique enrichment terms for DEGs and DSGs
     """
 
-    deg_pathway_identifiers = deg_enrichment_results_df["native"].to_numpy()
-    dsg_pathway_identifiers = dsg_enrichment_results_df["native"].to_numpy()
+    deg_term_identifiers = deg_enrichment_results_df["native"].to_numpy()
+    dsg_term_identifiers = dsg_enrichment_results_df["native"].to_numpy()
 
     # Intersection and unique pathway dataframes
-    overlapping_pathways = np.intersect1d(dsg_pathway_identifiers, deg_pathway_identifiers)
-    dsg_unique_pathways = np.setdiff1d(dsg_pathway_identifiers, deg_pathway_identifiers)
-    deg_unique_pathways = np.setdiff1d(deg_pathway_identifiers, dsg_pathway_identifiers)
+    overlapping_terms = np.intersect1d(dsg_term_identifiers, deg_term_identifiers)
+    dsg_unique_terms = np.setdiff1d(dsg_term_identifiers, deg_term_identifiers)
+    deg_unique_terms = np.setdiff1d(deg_term_identifiers, dsg_term_identifiers)
 
     # Dataframes of overlapping and unique pathways
-    dsg_unique_pathways_df = dsg_enrichment_results_df[dsg_enrichment_results_df["native"].isin(dsg_unique_pathways)]
-    deg_unique_pathways_df = deg_enrichment_results_df[deg_enrichment_results_df["native"].isin(deg_unique_pathways)]
-    overlapping_pathways_df = deg_enrichment_results_df[deg_enrichment_results_df["native"].isin(overlapping_pathways)]
+    dsg_unique_terms_df = dsg_enrichment_results_df[dsg_enrichment_results_df["native"].isin(dsg_unique_terms)]
+    deg_unique_terms_df = deg_enrichment_results_df[deg_enrichment_results_df["native"].isin(deg_unique_terms)]
+    overlapping_terms_df = deg_enrichment_results_df[deg_enrichment_results_df["native"].isin(overlapping_terms)]
 
     if save_df:
         if tissue is None:
-            dsg_unique_pathways_df.to_csv("./data/tabulaMuris/dsg_unique_pathways_df.csv", index=False)
-            deg_unique_pathways_df.to_csv("./data/tabulaMuris/deg_unique_pathways_df.csv", index=False)
-            overlapping_pathways_df.to_csv("./data/tabulaMuris/overlapping_pathways_df.csv", index=False)
+            dsg_unique_terms_df.to_csv("./data/tabulaMuris/dsg_unique_terms_df.csv", index=False)
+            deg_unique_terms_df.to_csv("./data/tabulaMuris/deg_unique_terms_df.csv", index=False)
+            overlapping_terms_df.to_csv("./data/tabulaMuris/overlapping_terms_df.csv", index=False)
         else:
-            dsg_unique_pathways_df.to_csv(f"./data/tabulaMuris/dsg_unique_pathways_df_{tissue}.csv", index=False)
-            deg_unique_pathways_df.to_csv(f"./data/tabulaMuris/deg_unique_pathways_df_{tissue}.csv", index=False)
-            overlapping_pathways_df.to_csv(f"./data/tabulaMuris/overlapping_pathways_df_{tissue}.csv", index=False)
+            dsg_unique_terms_df.to_csv(f"./data/tabulaMuris/dsg_unique_terms_df_{tissue}.csv", index=False)
+            deg_unique_terms_df.to_csv(f"./data/tabulaMuris/deg_unique_terms_df_{tissue}.csv", index=False)
+            overlapping_terms_df.to_csv(f"./data/tabulaMuris/overlapping_terms_df_{tissue}.csv", index=False)
 
-    return dsg_unique_pathways_df, deg_unique_pathways_df, overlapping_pathways_df
+    return dsg_unique_terms_df, deg_unique_terms_df, overlapping_terms_df
 
-def inference_scgetuvi(
+def load_merge_and_save_enrichment_terms(
+        tax_level_list: List[str],
+        file_prefix: str,
+        output_filename: str,
+        path2data: str,
+        **kwargs
+) -> pd.DataFrame:
+    r"""
+    This is a helper function to load and merge the dataframes of enrichment analysis results saved as csv files.
+    Duplicate terms are retained only once. It returns one merged dataframe.
+
+    :param tax_level_list: List of taxonomy levels to load the dataframes containing the enrichment analysis results
+    :param file_prefix: The prefix for the CSV files to be loaded (i.e. "dsg_unique_terms_df", "dsg_unique_terms_df", "overlapping_terms_df")
+    :param output_filename: The filename for the output file (i.e. "dsg_unique_terms_df_all.csv", "deg_unique_terms_df_all.csv", "overlapping_terms_df_all.csv")
+    :param path2data: The path to the directory containing the CSV files
+
+    """
+    dataframes = []
+    dataset_name = kwargs.get("dataset_name", "")
+
+    for tax_level_member in tax_level_list:
+        file_path = path2data + f"{file_prefix}_{tax_level_member}.csv"
+
+        enrichment_df = pd.read_csv(file_path)
+        enrichment_df["tissue"] = tax_level_member
+        enrichment_df["dataset"] = dataset_name
+
+        dataframes.append(enrichment_df)
+
+    # Combine all taxonomic levels
+    enrichment_df_all = pd.concat(dataframes, ignore_index=True)
+
+    # Retain each term only once across all taxonomy levels
+    enrichment_df_all = enrichment_df_all.drop_duplicates(
+        subset="native",
+        keep="first",
+    )
+
+    # Save the combined dataframe
+    enrichment_df_all.to_csv(
+        path2data + output_filename,
+        index=False,
+    )
+
+    return enrichment_df_all
+
+def inference_trvi(
         adata: Tuple[AnnData, AnnData], # adata[0] for gene expression, adata[1] for transcript usage
         dataset: GeneExpressionTranscriptUsageDataset,
-        model: SCGETUVI,
+        model: TRVI,
         likelihood_types: List[str],
         count_data_included: List[bool], # In general [True, True]
         batch_size: int = 256,
 ) -> Tuple[AnnData, AnnData]:
     r"""
     Given the data both as Tuple of two AnnData objects (gene expression and transcript usage) and as Dataset, a trained
-    model (instance of scGETUVI), infer the latent mean embeddings (private gene expression, private transcript usage,
+    model (instance of TRVI), infer the latent mean embeddings (private gene expression, private transcript usage,
     shared), the individual two UMAP dimensions, the data reconstructions, (IN FUTURE: and the cell type predictions).
     The latent mean embeddings and the UMAP embeddings are added as .obsm to the given AnnData objects depending on the
     modality (the shared is added to both). The data reconstructions are added as an additional layer, and the cell type
@@ -1903,7 +2499,7 @@ def inference_scgetuvi(
 
     :param adata: Tuple of two AnnData objects with adata[0] containing gene expression and adata[1] containing transcript usage data
     :param dataset: A customised PyTorch dataset of type GeneExpressionTranscriptUsageDataset
-    :param model: An instance of SCGETUVI
+    :param model: An instance of TRVI
     :param likelihood_types: A list of strings of likelihoods where likelihoods[0] is for gene expression and likelihoods[1] for transcript usage e.g. ["ZINB", "ZIDM"]
     :param count_data_included: A list of bool, in general [True, True] for both modalities unless Gaussian likelihoods are used
     :param batch_size: (int)
@@ -2019,7 +2615,7 @@ def inference_scgetuvi(
 
     return adata
 
-def analysis_scgetuvi_importance_weights_across_cell_types(
+def analysis_trvi_relevance_weights_across_cell_types(
         adata: AnnData,
         list_of_random_seeds: List[int],
         transcriptomic_facet: str = "Gene expression",
@@ -2030,14 +2626,14 @@ def analysis_scgetuvi_importance_weights_across_cell_types(
 ) -> Tuple[pd.DataFrame, Dict[str, float]]:
     r"""
     Given an AnnData object (either of gene expression data or transcript usage data) containing the results of
-    inference carried out with scGETUVI (across random seeds), a list of random seeds, a transcriptomic facet (i.e. Gene
+    inference carried out with TRVI (across random seeds), a list of random seeds, a transcriptomic facet (i.e. Gene
     expression or Transcript usage), a likelihood key (e.g. ZINB for gene expression, or ZIDM for transcript usage), and
     a cell type key (e.g. cell_ontology_class), and an optional sort_cell_type_key (e.g. sort cell types according to
-    organ systems), calculate the mean importance weight per cell type and the total mean importance weight across all
-    cell types for each random seed, determine the total mean and standard deviation of the importance weights for the
-    specified transcriptomic facet across random seeds, and return a DataFrame containing the mean importance weights
-    per cell type for each random seed, and a dictionary containing the total mean and standard deviation of the
-    importance weights for the specified transcriptomic facet.
+    organ systems), calculate the mean modality-relevance weight per cell type and the total mean modality-relevance
+    weight across all cell types for each random seed, determine the total mean and standard deviation of the modality-
+    relevance weights for the specified transcriptomic facet across random seeds, and return a DataFrame containing the
+    mean modality-relevance weights per cell type for each random seed, and a dictionary containing the total mean and
+    standard deviation of the modality-relevance weights for the specified transcriptomic facet.
 
     :param adata: AnnData object (either of gene expression data or transcript usage data)
     :param list_of_random_seeds: list of random seeds e.g. [0, 1, 2, 3]
@@ -2045,10 +2641,10 @@ def analysis_scgetuvi_importance_weights_across_cell_types(
     :param likelihood_key: key of cell type (e.g. ZINB)
     :param cell_type_key: key of cell type (e.g. cell_ontology_class)
     :param sort_cell_type_key: optional key to sort cell types according to, e.g. organ system key
-    :param kwargs: additional keyword arguments to pass to scGETUVI
+    :param kwargs: additional keyword arguments to pass to TRVI
 
     """
-    # For each seed, calculate the mean importance weight per cell type and the total mean importance weight across all cell types
+    # For each seed, calculate the mean relevance weight per cell type and the total mean relevance weight across all cell types
     list_of_means = []
     list_of_total_means = []
     mean_weights_dict = {}
@@ -2059,7 +2655,7 @@ def analysis_scgetuvi_importance_weights_across_cell_types(
         # Assert if weighting_key is present in adata.obs otherwise the inference has not been done with the according random seed
         assert weighting_key in adata.obs, f"The weighting key {weighting_key} is not present in adata.obs. Please check if the inference has been done with random seed {random_seed} and likelihood {likelihood_key}."
 
-        # Mean importance weight per cell type
+        # Mean relevance weight per cell type
         means = adata.obs.groupby(cell_type_key)[weighting_key].mean()
         list_of_means.append(means)
 
@@ -2222,7 +2818,7 @@ def training_vae_embeddings_cell_type_classification(
         loss_type,
     )
 
-def training_cell_type_classifiers_scgetuvi(
+def training_cell_type_classifiers_trvi(
         adata: List[AnnData],
         tissue: str,
         likelihoods: List[str],
@@ -2380,7 +2976,7 @@ def evaluate_vae_emb_cell_type_classifiers(
     # Create an empty list that will store the classifiers
     classifiers = []
     path2scgevi_classifiers = "./models/scGEVI/classifiers/"
-    path2sctuvi_classifiers = ("./models/scTU"
+    path2tuvi_classifiers = ("./models/tu"
                                "VI/classifiers/")
 
     # Extract the ground truth cell types for the dataset
@@ -2401,15 +2997,15 @@ def evaluate_vae_emb_cell_type_classifiers(
         classifier.to(device)
         classifiers.append(classifier)
 
-    # Load scTuVI classifiers
+    # Load tuVI classifiers
     for i, checkpoint_idx in enumerate(checkpoint_indices_TU):
-        classifier_name = dataset_name + "_" + tissue + "_" + "LogisticRegressionClassifier_scTUVI_" + likelihoods_TU[i] + "_epochs_" + str(checkpoint_idx) + "_checkpoint.pth"
+        classifier_name = dataset_name + "_" + tissue + "_" + "LogisticRegressionClassifier_tuVI_" + likelihoods_TU[i] + "_epochs_" + str(checkpoint_idx) + "_checkpoint.pth"
         classifier = LogisticRegressionClassifier(
             input_dim=10,
             num_classes=len(cell_types),
             device=device
         )
-        classifier.load_state_dict(torch.load(path2sctuvi_classifiers + classifier_name, map_location=device)["model_state_dict"])
+        classifier.load_state_dict(torch.load(path2tuvi_classifiers + classifier_name, map_location=device)["model_state_dict"])
         classifier.to(device)
         classifiers.append(classifier)
 
@@ -2440,15 +3036,15 @@ def evaluate_vae_emb_cell_type_classifiers(
         )
 
     for i, likelihood in enumerate(likelihoods_TU):
-        scTUVI_embeddings = adata_eval[1].obsm[likelihood + "_latent_mean"]
-        scTUVI_ontology = adata_eval[1].obs["cell_ontology_class"].to_numpy()
-        scTUVI_tissue = adata_eval[1].obs["tissue"].to_numpy()
+        tuVI_embeddings = adata_eval[1].obsm[likelihood + "_latent_mean"]
+        tuVI_ontology = adata_eval[1].obs["cell_ontology_class"].to_numpy()
+        tuVI_tissue = adata_eval[1].obs["tissue"].to_numpy()
 
         eval_datasets_list.append(
             VAEEmbeddingsCellTypeDataset(
-                vae_embeddings=scTUVI_embeddings,
-                ontology=scTUVI_ontology,
-                tissue=scTUVI_tissue,
+                vae_embeddings=tuVI_embeddings,
+                ontology=tuVI_ontology,
+                tissue=tuVI_tissue,
                 cell_types=cell_types
             )
         )
@@ -2550,7 +3146,7 @@ def evaluate_vae_emb_cell_type_classifiers(
     return classifiers_eval_dict
 
 
-def evaluate_cell_type_classifiers_scgetuvi(
+def evaluate_cell_type_classifiers_trvi(
         adata: Tuple[AnnData, AnnData],
         tissue: str,
         checkpoint_indices: List[int],
@@ -2578,7 +3174,7 @@ def evaluate_cell_type_classifiers_scgetuvi(
 
     # Create an empty list that will store the classifiers
     classifiers = []
-    path2models = "./models/scGETUVI/classifiers/"
+    path2models = "./models/TRVI/classifiers/"
 
     """
     # Extract the groud truth cell types for the dataset
@@ -2749,12 +3345,12 @@ def evaluate_cell_type_classifiers_scgetuvi(
 
     return adata_eval, classifiers_eval_dict
 
-def cell_type_classification_scgetuvi_dataframe(
+def cell_type_classification_trvi_dataframe(
         classification_dict: dict[str, dict[str, dict[str, float]]],
         embedding_types: List[str]
 ) -> pd.DataFrame:
     r"""
-    Given a dictionary outputted from the evaluate_cell_type_classifiers_scgetuvi function and a list of embedding types,
+    Given a dictionary outputted from the evaluate_cell_type_classifiers_trvi function and a list of embedding types,
     create a pandas DataFrame for reporting and plotting purposes.
     """
     accuracy_list = []
@@ -2786,7 +3382,7 @@ def cell_type_classification_dataframe(
         likelihoods: List[str]
 ) -> pd.DataFrame:
     r"""
-    Given a dictionary from scGEVI or scTUVI
+    Given a dictionary from scGEVI or tuVI
     """
     accuracy_list = []
     weighted_auroc_list = []
@@ -3319,7 +3915,7 @@ def impute_data_MMVAEplus(
     (gene expression and transcript usage data) and as GeneExpressionTranscriptUsageDataset, impute the data using the
     model. The function adds imputed data to the AnnData objects given and returns these edited objects as a Tuple.
 
-    TO DO: Add support for cross-modal imputation, add perturbation to the imputed data, and try out with scGETUVI
+    TO DO: Add support for cross-modal imputation, add perturbation to the imputed data, and try out with TRVI
 
     :param model: GeneExpressionTranscriptUsageMMVAEplus
     :param adata: Tuple of two AnnData objects (gene expression and transcript usage data)
@@ -3495,90 +4091,3 @@ def log_sum_exp(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     max_val = torch.max(a, b)
     return max_val + torch.log(torch.exp(a - max_val) + torch.exp(b - max_val))
 
-
-# ARCHIVED
-
-class GeneExpressionDataset_OLD(Dataset):
-    r"""
-    Dataset class for gene expression data consisting of a cell x gene expression matrix, a cell ontology annotation,
-    and a tissue annotation. If the transform is specified as "log", the cell x gene expression matrix will be log(1
-    + x) transformed
-
-    :param cell_gene_counts:
-    :param ontology:
-    :param tissue:
-    :param transform:
-    """
-
-    def __init__(
-            self,
-            cell_gene_counts: torch.Tensor,
-            ontology: np.ndarray,
-            tissue: np.ndarray,
-            transform: str
-    ) -> None:
-        super().__init__()
-
-        self.cell_gene_counts = cell_gene_counts
-        self.num_cells = cell_gene_counts.shape[0]
-        self.num_genes = cell_gene_counts.shape[1]
-        self.ontology = ontology
-        self.tissue = tissue
-        self.transform = transform
-
-    def __len__(self) -> int:
-        return self.num_cells
-
-    def __getitem__(self, idx) -> Tuple[torch.Tensor, str, str]:
-        gene_counts = self.cell_gene_counts[idx]
-
-        if self.transform == "log":
-            gene_counts = torch.log(1 + gene_counts)
-
-        cell_ontology = self.ontology[idx]
-        cell_tissue = self.tissue[idx]
-
-        return gene_counts, cell_ontology, cell_tissue
-
-
-class TranscriptUsageDataset_OLD(Dataset):
-    r"""
-    Dataset class for transcript usage data consisting of a cell-intron count matrix, a cell ontology annotation,
-    and a tissue annotation. If the transform is specified as "log", the intron count data will be log(1 + x)
-    transformed
-
-    :param cell_intron_counts:
-    :param ontology:
-    :param tissue:
-    :param transform:
-    """
-
-    def __init__(
-            self,
-            cell_intron_counts: torch.Tensor,
-            ontology: np.ndarray,
-            tissue: np.ndarray,
-            transform: str = None,
-    ) -> None:
-        super().__init__()
-        self.cell_intron_counts = cell_intron_counts
-        self.num_cells = self.cell_intron_counts.shape[0]
-        self.num_introns = self.cell_intron_counts.shape[1]
-        self.ontology = ontology
-        self.tissue = tissue
-        self.transform = transform
-        # Potentially: self.target_transform
-
-    def __len__(self) -> int:
-        return self.num_cells
-
-    def __getitem__(self, idx) -> Tuple[torch.Tensor, str, str]:
-        intron_counts = self.cell_intron_counts[idx]
-
-        if self.transform == "log":
-            intron_counts = torch.log(1 + intron_counts)
-
-        cell_ontology = self.ontology[idx]
-        cell_tissue = self.tissue[idx]
-
-        return intron_counts, cell_ontology, cell_tissue
