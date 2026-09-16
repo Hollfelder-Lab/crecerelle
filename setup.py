@@ -33,5 +33,5 @@ setup(
         'matplotlib-venn',
     ],
     python_requires='>=3.10',
-    description='Crecerelle: Unimodal and bimodal cell embeddings of single cell gene expression and transcript usage data using (bimodal) variational autoencoders',
+    description='Crecerelle: deep generative cell embeddings embeddings from single-cell gene expression alternative splicing-induced transcript usage data',
 )
