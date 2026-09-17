@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import itertools
 
-from typing import Tuple, Dict, Iterable, Literal, List
+from typing import Tuple, Dict, Iterable, List
 
 import ast # DOUBLE CHECK
 
@@ -16,14 +16,15 @@ import math
 
 def create_set_zero_subsets(d: int) -> List[Tuple[int, ...]]:
     r"""
-    Given a tensor of dimensionality d, create a set
+    Given a tensor of dimensionality $d$, create a set
 
-    ..math::
+    $$
         \tilde{\mathcal{K}} = \{\mathcal{K} \subseteq \{1, \dots, d \}; 1 \leq |\mathcal{K}| \leq d - 2 \}
+    $$
 
-    which are all subsets :math:`\mathcal{K}$`of :math:`\{1, \dots, d \}` with cardinality
-    :math:`|\mathcal{K}|` between 1 and d-2. A subset :math:`\mathcal{K}` gathers categories with counts of zero
-    excluding the cases where exactly d and d-1 categories are zero-inflated.
+    which are all subsets $\mathcal{K}$ of $\{1, \dots, d \}$ with cardinality
+    $|\mathcal{K}|$ between $1$ and $d-2$. A subset $\mathcal{K}$ gathers categories with counts of zero
+    excluding the cases where exactly $d$ and $d-1$ categories are zero-inflated.
 
     :param d: (int) The dimension of the count vector of an intron group (intron group size)
     :return set_zero_subsets: (List[Tuple[int, ...]]) A list of tuples where each tuple is a subset of indices
@@ -49,6 +50,9 @@ def create_set_zero_subsets(d: int) -> List[Tuple[int, ...]]:
 
 
 class FCLayers(nn.Module):
+    r"""
+        Fully connected neural network used by the encoders and decoders.
+    """
     def __init__(
             self,
             input_dim: int,
@@ -61,6 +65,25 @@ class FCLayers(nn.Module):
             non_linearity: str = "ReLU",
             bias: bool = True
     ) -> None:
+        r"""
+        This class provides a fully connected neural network with a specified number of hidden layers and units.
+        The network can also include batch normalization and dropout regularization. The non-linearity (ReLU by default)
+        can be specified as well. Each block of the network consists of a linear layer, followed by optional batch
+        normalization, a non-linear activation function, and optional dropout. This class is used as a building block
+        for the encoder and decoder networks in the BetaVAE model and its child classes. The class is based on the
+        scvi.nn.FCLayers class from the scVI package
+        (https://docs.scvi-tools.org/en/stable/api_reference/scvi.nn.html#scvi.nn.FCLayers).
+
+        :param input_dim: (int) The dimension of the input features.
+        :param output_dim: (int) The dimension of the output features.
+        :param num_cat_list: (list) A list of integers representing the number of categories for each categorical variable.
+        :param num_hidden_layers: (int) The number of hidden layers in the network.
+        :param num_hidden_units: (int) The number of units in each hidden layer.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        :param use_batch_norm: (bool) Whether to use batch normalization after each linear layer. Default is True.
+        :param non_linearity: (str) The non-linear activation function to use. Default is "ReLU".
+        :param bias: (bool) Whether to include a bias term in the linear layers. Default is True.
+        """
 
         super(FCLayers, self).__init__()
         layers_dim = [input_dim] + (num_hidden_layers - 1) * [num_hidden_units] + [output_dim]
@@ -82,62 +105,26 @@ class FCLayers(nn.Module):
             if dropout_rate > 0:
                 layer.add_module("dropout", nn.Dropout(p=dropout_rate))
             self.fc_layers.append(layer)
-    # PREVIOUS FORWARD
-    """
-    def forward(self, x: torch.Tensor, *cat_list: int) -> torch.Tensor:
-        one_hot_cat_list = []
-        assert len(self.num_cat_list) <= len(cat_list), "nb. categorical args provided doesn't match init. params"
-
-        for num_cat, cat in zip(self.num_cat_list, cat_list):
-            assert not (num_cat and cat is None), "cat not provided while num_cat != 0 in init. params"
-            if num_cat > 1:
-                if cat.size(1) != num_cat:
-                    one_hot_cat = F.one_hot(cat.squeeze(), num_cat)  # NOT CHECKED
-                else:
-                    one_hot_cat = cat
-                one_hot_cat_list += [one_hot_cat]
-        for layers in self.fc_layers:
-            for layer in layers:
-                if one_hot_cat_list:
-                    if x.dim() == 3:
-                        one_hot_cat_list_layer = [
-                            o.unsqueeze(0).expand((x.size(0), o.size(0), o.size(1))) for o in one_hot_cat_list
-                        ]
-                    else:
-                        one_hot_cat_list_layer = one_hot_cat_list
-
-                    x = torch.cat((x, *one_hot_cat_list_layer), dim=-1)
-
-                x = layer(x)
-        
-        return x
-    """
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        r"""
+        Forward pass through the fully connected layers. The input tensor is passed through each layer in the network,
+        and the output of the final layer is returned.
+
+        :param x: (torch.Tensor) The input tensor of shape (batch_size, input_dim).
+        :return: (torch.Tensor) The output tensor of shape (batch_size, output_dim).
+        """
         for layers in self.fc_layers:
             for layer in layers:
                 x = layer(x)
 
         return x
-
-class LinearEncoder(nn.Module):
-    def __init__(self, input_dim: int, output_dim: int) -> None:
-        super(LinearEncoder, self).__init__()
-        self.mean_encoder = nn.Linear(input_dim, output_dim, bias=True)
-        self.var_encoder = nn.Linear(input_dim, output_dim, bias=True)
-
-    def forward(
-            self,
-            x: torch.Tensor,
-            *cat_list: int
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        latent_mean = self.mean_encoder(x)
-        latent_var = torch.exp(self.var_encoder(x))
-
-        return latent_mean, latent_var
 
 
 class Encoder(nn.Module):
+    r"""
+        Encoder for a Gaussian variational posterior returning latent means and diagonal variances
+    """
     def __init__(
             self,
             input_dim: int,
@@ -149,6 +136,22 @@ class Encoder(nn.Module):
             architecture: str = "Fully Connected",
             variational_posterior: str = "Gaussian"
     ) -> None:
+        r"""
+        This class provides an encoder network for the BetaVAE model and its child classes. The encoder takes the input
+        data and encodes it into a latent representation. The encoder can be configured to use different architectures
+        (currently only "Fully Connected" is implemented) and variational posterior distributions (currently "Gaussian"
+        is implemented). The encoder consists of a series of fully connected layers followed by two linear layers that
+        output the mean and variance of the latent representation.
+
+        :param input_dim: (int) The dimension of the input features.
+        :param output_dim: (int) The dimension of the latent representation.
+        :param num_cat_list: (list) A list of integers representing the number of categories for each categorical variable.
+        :param num_hidden_layers: (int) The number of hidden layers in the encoder network.
+        :param num_hidden_units: (int) The number of units in each hidden layer.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        :param architecture: (str) The architecture of the encoder network. Currently only "Fully Connected" is implemented.
+        :param variational_posterior: (str) The variational posterior distribution to use. Currently only "Gaussian" is implemented.
+        """
         super(Encoder, self).__init__()
 
         self.variational_posterior = variational_posterior
@@ -177,6 +180,14 @@ class Encoder(nn.Module):
             x: torch.Tensor,
             *cat_list: int
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        r"""
+        Forward pass through the encoder network. The input tensor is passed through the fully connected layers, and the
+        mean and variance of the latent representation are computed and returned.
+
+        :param x: (torch.Tensor) The input tensor of shape (batch_size, input_dim).
+        :param *cat_list: (int) Categorical variables to be concatenated to the input of the encoder.
+        :return: Tuple[torch.Tensor, torch.Tensor] The mean and variance of the latent representation, each of shape (batch_size, output_dim).
+        """
 
         if not torch.isfinite(x).all():
             raise FloatingPointError("Encoder input contains NaN or Inf.")
@@ -204,6 +215,9 @@ class Encoder(nn.Module):
         return latent_mean, latent_var
 
 class ScaleEncoder(nn.Module):
+    r"""
+    Encoder returning positive scaling factors or unconstrained modality-relevance weight logits.
+    """
     def __init__(
             self,
             input_dim: int,
@@ -216,6 +230,25 @@ class ScaleEncoder(nn.Module):
             variational_posterior: str = "Gaussian",
             learn_modality_weighting: bool = False # Scenario to encode the mixing coefficient of the latent distribution
     ) -> None:
+        r"""
+        This class provides an encoder network for learning scaling factors in the BetaVAE model and its child classes.
+        The scale encoder takes the input data and encodes it into a scaling factor representation. The encoder can be
+        configured to use different architectures (currently only "Fully Connected" is implemented) and variational
+        posterior distributions (currently "Gaussian" is implemented). The encoder consists of a series of fully
+        connected layers followed by a linear layer that outputs the scaling factor. In TRVI it is used to learn the
+        scaling factor of a cell or the modality-relevance weights of the shared variational posterior of a latent
+        mixture model.
+
+        :param input_dim: (int) The dimension of the input features.
+        :param output_dim: (int) The dimension of the scaling factor representation. Default is 1.
+        :param num_cat_list: (list) A list of integers representing the number of categories for each categorical variable.
+        :param num_hidden_layers: (int) The number of hidden layers in the scale encoder network.
+        :param num_hidden_units: (int) The number of units in each hidden layer.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        :param architecture: (str) The architecture of the scale encoder network. Currently only "Fully Connected" is implemented.
+        :param variational_posterior: (str) The variational posterior distribution to use. Currently only "Gaussian" is implemented.
+        :param learn_modality_weighting: (bool) Whether to learn the mixing coefficient of a latent mixture model. Default is False.
+        """
         super(ScaleEncoder, self).__init__()
         self.variational_posterior = variational_posterior
 
@@ -252,6 +285,14 @@ class ScaleEncoder(nn.Module):
             x: torch.Tensor,
             *cat_list: int
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        r"""
+        Forward pass through the scale encoder network. The input tensor is passed through the fully connected layers,
+        and the scaling factor is computed and returned.
+
+        :param x: (torch.Tensor) The input tensor of shape (batch_size, input_dim).
+        :param *cat_list: (int) Categorical variables to be concatenated to the input of the scale encoder.
+        :return: (torch.Tensor) The scaling factor of shape (batch_size, output_dim).
+        """
 
         #encoding = self.encoder(x, *cat_list)
         encoding = self.encoder(x)
@@ -262,9 +303,7 @@ class ScaleEncoder(nn.Module):
 
 class Decoder(nn.Module):
     r"""
-    Default class for decoders used in class BetaVAE. As likelihood, the decoder assumes a multivariate Gaussian
-    distribution with diagonal covariance matrix. The decoder is a neural network that takes the latent representation
-    as input and computes the mean and variance vectors of the likelihood back in the data space.
+    Decoder for a generative model with a Gaussian observaton model returning reconstructed meand and diagonal variances
     """
     def __init__(
             self,
@@ -275,6 +314,18 @@ class Decoder(nn.Module):
             num_hidden_layers: int = 1,
             num_hidden_units: int = 128
     ) -> None:
+        r"""
+        Default class for decoders used in class BetaVAE. As likelihood, the decoder assumes a multivariate Gaussian
+        distribution with diagonal covariance matrix. The decoder is a neural network that takes the latent representation
+        as input and computes the mean and variance vectors of the likelihood back in the data space.
+
+        :param input_dim: (int) The dimension of the latent representation.
+        :param output_dim: (int) The dimension of the output features (data space).
+        :param num_cat_list: (list) A list of integers representing the number of categories for each categorical variable.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        :param num_hidden_layers: (int) The number of hidden layers in the decoder network.
+        :param num_hidden_units: (int) The number of units in each hidden layer.
+        """
         super(Decoder, self).__init__()
 
         self.decoding_layers = FCLayers(
@@ -294,6 +345,12 @@ class Decoder(nn.Module):
             *cat_list: int
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""
+        Forward pass of the decoder. The decoding neural network takes the latent representation as input and
+        decodes it into mean and variance vectors of the likelihood back in the data space.
+
+        :param x: (torch.Tensor) Latent representation of the data.
+        :param *cat_list: (int) Categorical variables to be concatenated to the input of the decoder.
+        :return: Tuple[torch.Tensor, torch.Tensor] Reconstructed mean and variance vectors of the likelihood.
         """
         # Apply the decoding layers to the latent variable
         #x_decoded = self.decoding_layers(x, *cat_list)
@@ -306,9 +363,8 @@ class Decoder(nn.Module):
 
 class NBGeneExpressionDecoder(nn.Module):
     r"""
-    Decoder for gene expression data if a negative binomial likelihood is used. The decoder is a neural network that
-    takes the latent representation as input and decodes it into a mean reconstruction that parameterise
-    the negative-binomial likelihood together with an inverse dispersion which is a simple learnable parameter.
+    Decoder for a generative model of gene expression data with a negative binomial (NB) observation model returning
+    positive means.
     """
     def __init__(
             self,
@@ -319,6 +375,18 @@ class NBGeneExpressionDecoder(nn.Module):
             num_hidden_layers: int = 1,
             num_hidden_units: int = 128
     ) -> None:
+        r"""
+        Decoder for gene expression data if a negative binomial likelihood is used. The decoder is a neural network that
+        takes the latent representation as input and decodes it into a mean reconstruction that parameterize
+        the negative-binomial likelihood together with an inverse dispersion which is a simple learnable parameter.
+
+        :param input_dim: (int) The dimension of the latent representation.
+        :param output_dim: (int) The dimension of the output features (data space).
+        :param num_cat_list: (list) A list of integers representing the number of categories for each categorical variable.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        :param num_hidden_layers: (int) The number of hidden layers in the decoder network.
+        :param num_hidden_units: (int) The number of units in each hidden layer.
+        """
         super(NBGeneExpressionDecoder, self).__init__()
 
         self.decoding_layers = FCLayers(
@@ -338,6 +406,11 @@ class NBGeneExpressionDecoder(nn.Module):
         r"""
         Forward pass of the decoder. The decoding neural network takes the latent representation as input and
         decodes it into a mean reconstruction which is returned.
+
+        :param x: (torch.Tensor) Latent representation of the data.
+        :param *cat_list: (int) Categorical variables to be concatenated to the input of the decoder.
+        :param eps: (float) Small epsilon value for numerical stability. Default is 1e-8.
+        :return: (torch.Tensor) Reconstructed mean vector of the likelihood.
         """
         # Apply the decoding layers to the latent variable
         #x_decoded = self.decoding_layers(x, *cat_list)
@@ -350,10 +423,8 @@ class NBGeneExpressionDecoder(nn.Module):
 
 class ZINBGeneExpressionDecoder(nn.Module):
     r"""
-    Decoder for gene expression data if a zero-inflated negative binomial (ZINB) likelihood is used. The decoder is a
-    neural network that takes the latent representation as input and decodes it into a mean reconstruction and logit
-    zero-inflation probability that parameterise the ZINB likelihood together with an inverse dispersion which is a
-    simple learnable parameter.
+    Decoder for a generative model of gene expression data with a zero-inflated negative binomial (ZINB) observation
+    model returning positive means, and zero-inflation logits.
     """
     def __init__(
             self,
@@ -364,6 +435,19 @@ class ZINBGeneExpressionDecoder(nn.Module):
             num_hidden_layers: int = 1,
             num_hidden_units: int = 128
     ) -> None:
+        r"""
+        Decoder for gene expression data if a zero-inflated negative binomial (ZINB) likelihood is used. The decoder is a
+        neural network that takes the latent representation as input and decodes it into a mean reconstruction and logit
+        zero-inflation probability that parameterize the ZINB likelihood together with an inverse dispersion which is a
+        simple learnable parameter.
+
+        :param input_dim: (int) The dimension of the latent representation.
+        :param output_dim: (int) The dimension of the output features (data space).
+        :param num_cat_list: (list) A list of integers representing the number of categories for each categorical variable.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        :param num_hidden_layers: (int) The number of hidden layers in the decoder network.
+        :param num_hidden_units: (int) The number of units in each hidden layer.
+        """
         super(ZINBGeneExpressionDecoder, self).__init__()
 
         self.decoding_layers = FCLayers(
@@ -387,6 +471,11 @@ class ZINBGeneExpressionDecoder(nn.Module):
         r"""
         Forward pass of the decoder. The decoding neural network takes the latent representation as input and
         decodes it into a mean reconstruction and logit zero-inflation probability which are returned as a tuple.
+
+        :param x: (torch.Tensor) Latent representation of the data.
+        :param cat_list: (int) Categorical variables to be concatenated to the input of the decoder.
+        :param eps: (float) Small epsilon value for numerical stability. Default is 1e-8.
+        :return: Tuple[torch.Tensor, torch.Tensor] Reconstructed mean vector and logit zero-inflation probability.
         """
         # Apply the decoding layers to the latent variable
         #x_decoded = self.decoding_layers(x, *cat_list)
@@ -409,8 +498,8 @@ class ZINBGeneExpressionDecoder(nn.Module):
 
 class GaussianGeneExpressionDecoder(nn.Module):
     r"""
-    Decoder for gene expression data if a Gaussian likelihood is used. The decoder is a neural network that takes the
-    latent representation as input and decodes it into a mean reconstruction and variance reconstruction.
+    Decoder for a generative model of gene expression data (i.e. expression levels) with a Gaussian observation model
+    returning means and variances.
     """
     def __init__(
             self,
@@ -421,6 +510,17 @@ class GaussianGeneExpressionDecoder(nn.Module):
             num_hidden_layers: int = 1,
             num_hidden_units: int = 128
     ) -> None:
+        r"""
+        Decoder for gene expression data if a Gaussian likelihood is used. The decoder is a neural network that takes the
+        latent representation as input and decodes it into a mean reconstruction and variance reconstruction.
+
+        :param input_dim: (int) The dimension of the latent representation.
+        :param output_dim: (int) The dimension of the output features (data space).
+        :param num_cat_list: (list) A list of integers representing the number of categories for each categorical variable.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        :param num_hidden_layers: (int) The number of hidden layers in the decoder network.
+        :param num_hidden_units: (int) The number of units in each hidden layer.
+        """
         super(GaussianGeneExpressionDecoder, self).__init__()
 
         self.decoding_layers = FCLayers(
@@ -441,13 +541,11 @@ class GaussianGeneExpressionDecoder(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""
         Forward pass of the decoder. The decoding neural network takes the latent representation as input and
-        decodes it into a mean reconstruction and variance reconstruction which are returnsd as a tuple.
+        decodes it into a mean reconstruction and variance reconstruction which are returned as a tuple.
 
-        Args:
-            x (torch.Tensor): Latent representation of the data.
-            *cat_list (int): Categorical variables to be concatenated to the input of the decoder.
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: Reconstructed mean and variance.
+        :param x: (torch.Tensor) Latent representation of the data.
+        :param cat_list: (int) Categorical variables to be concatenated to the input of the decoder.
+        :return: Tuple[torch.Tensor, torch.Tensor] Reconstructed mean vector and variance vector of the likelihood.
         """
         # Apply the decoding layers to the latent variable
         #x_decoded = self.decoding_layers(x, *cat_list)
@@ -460,133 +558,11 @@ class GaussianGeneExpressionDecoder(nn.Module):
         return mean_reconstruction, var_reconstruction
 
 
-
-class LinearGeneDecoder(nn.Module):  # scVI implementation currently
-    def __init__(
-            self,
-            input_dim: int,
-            output_dim: int,
-            num_cat_list: Iterable[int] = None,  # DOUBLE CHECK AND DELETE LATER
-            use_batch_norm: bool = True,
-            bias: bool = False
-    ) -> None:
-        super(LinearGeneDecoder, self).__init__()
-
-        # mean gamma
-        self.factor_regressor = FCLayers(
-            input_dim=input_dim,
-            output_dim=output_dim,
-            num_cat_list=num_cat_list,
-            num_hidden_layers=1,
-            dropout_rate=0,
-            use_batch_norm=use_batch_norm,
-            non_linearity="Linear",
-            bias=bias
-        )
-
-        # dropout
-        self.px_dropout_decoder = FCLayers(
-            input_dim=input_dim,
-            output_dim=output_dim,
-            num_cat_list=num_cat_list,
-            num_hidden_layers=1,
-            dropout_rate=0,
-            use_batch_norm=use_batch_norm,
-            non_linearity="Linear",
-            bias=bias
-        )
-
-    def forward(
-            self,
-            dispersion: str,  # Consider deleting dispersion
-            z: torch.Tensor,
-            library: torch.Tensor,
-            *cat_list: int
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        # The decoder returns values for the parameters of the ZINB distribution
-        #raw_px_scale = self.factor_regressor(z, *cat_list)
-        raw_px_scale = self.factor_regressor(z)
-        px_scale = torch.softmax(raw_px_scale, dim=-1)
-        #px_dropout = self.px_dropout_decoder(z, *cat_list)
-        px_dropout = self.px_dropout_decoder(z)
-        px_rate = torch.exp(library) * px_scale
-        px_r = None
-
-        return px_scale, px_r, px_rate, px_dropout
-
-
-class LinearIntronsDecoder(nn.Module):  # double check forward pass for understanding the transformations
-    def __init__(
-            self,
-            intron_groups: np.ndarray,
-            intron_group_summation: torch.sparse_coo_tensor,
-            input_dim: int,
-            output_dim: int,
-            bias=True
-    ) -> None:
-        super().__init__()
-        self.intron_groups = intron_groups
-        self.intron_group_summation = intron_group_summation
-        self.linear_layer = nn.Linear(input_dim, output_dim, bias=bias)
-
-    def forward(self, latent_variable: torch.Tensor, intron_group_idx_start: torch.Tensor) -> torch.Tensor:
-        potentials = self.linear_layer(latent_variable)
-        potentials[:, intron_group_idx_start] = 0.0
-        p_u = torch.exp(potentials)
-        intron_group_sums = torch.sparse.mm(self.intron_group_summation, p_u.T).T
-        norm_factor = intron_group_sums[:, self.intron_groups]
-        p = torch.div(p_u, norm_factor)
-
-        return p
-
-class GeneDecoder(nn.Module):
-    def __init__(
-            self,
-            input_dim: int,
-            output_dim: int,
-            num_cat_list: Iterable[int] = None,
-            num_hidden_layers: int = 1,
-            num_hidden_units: int = 128
-    ) -> None:
-        super().__init__()
-
-        self.px_decoder = FCLayers(
-            input_dim=input_dim,
-            output_dim=num_hidden_units,
-            num_cat_list=num_cat_list,
-            num_hidden_layers=num_hidden_layers,
-            dropout_rate=0
-        )
-
-        # mean gamma
-        self.px_scale_decoder = nn.Sequential(
-            nn.Linear(num_hidden_units, output_dim), nn.Softmax(dim=-1)
-        )
-
-        # dispersion: only gene-cell dispersion case
-        self.px_r_decoder = nn.Linear(num_hidden_units, output_dim)
-
-        # dropout
-        self.px_dropout_decoder = nn.Linear(num_hidden_units, output_dim)
-
-    def forward(
-            self,
-            dispersion: str,
-            z: torch.Tensor,
-            *cat_list: int
-    ) -> Dict[str, torch.Tensor]:
-        # Decoder returns values for the parameters of ZINB distribution
-        #px = self.px_decoder(z, *cat_list)
-        px = self.px_decoder(z)
-        px_scale = self.px_scale_decoder(px)
-        px_dropout = self.px_dropout_decoder(px)
-        # Clamp to high value: exp(12) ~ 160000 to avoid nans (computational stability)
-        # px_rate = torch.exp(library) * px_scale  # torch.clamp( , max=12) # REMOVED px_rate == px_scale
-
-        return {"recon": px_scale, "dropout": px_dropout}
-
-
-class IntronsDecoder(nn.Module):  # double check forward pass for understanding the transformations
+class IntronsDecoder(nn.Module):
+    r"""
+    Decoder for a generative model of alternative-splicing induced transcript usage data with a Dirichlet-Multinomial
+    (DM) observation model returning exon junction (intron) proportions normalized within each isoform (intron) group.
+    """
     def __init__(
             self,
             intron_groups: torch.Tensor,
@@ -598,6 +574,23 @@ class IntronsDecoder(nn.Module):  # double check forward pass for understanding 
             num_hidden_units: int = 128,
             dropout_rate: float = 0.1,
     ) -> None:
+        r"""
+        This class is the decoder for the transcript usage Variational Inference (tuVI) variational autoencoder with a
+        Dirichlet-Multinomial observation model (DMTranscriptUsageVAE). It takes the latent representation as input and
+        decodes it into a vector of reconstructed intron proportions (psi scores) which are returned. The decoder is a
+        neural network that consists of a series of fully connected layers followed by a linear layer that outputs the
+        reconstructed intron proportions. The decoder also takes into account the intron groups and their summation to
+        ensure that the reconstructed intron proportions are valid.
+
+        :param intron_groups: (torch.Tensor) A tensor containing the indices of the first intron of each intron group.
+        :param intron_group_summation: (torch.sparse_coo_tensor) A sparse tensor representing the summation of intron groups.
+        :param input_dim: (int) The dimension of the latent representation.
+        :param output_dim: (int) The dimension of the output features (data space).
+        :param num_cat_list: (list) A list of integers representing the number of categories for each categorical variable.
+        :param num_hidden_layers: (int) The number of hidden layers in the decoder network.
+        :param num_hidden_units: (int) The number of units in each hidden layer.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        """
         super(IntronsDecoder, self).__init__()
         #self.intron_groups = intron_groups
         #self.intron_group_summation = intron_group_summation
@@ -616,6 +609,10 @@ class IntronsDecoder(nn.Module):  # double check forward pass for understanding 
         self.linear_layer = nn.Linear(num_hidden_units, output_dim)
 
     def forward(self, latent_variable: torch.Tensor, intron_group_idx_start: torch.Tensor) -> torch.Tensor:
+        r"""
+        Forward pass of the decoder. The decoding neural network takes the latent representation as input and decodes it
+        into a vector of reconstructed intron proportions (psi scores) which are returned.
+        """
         potentials = self.linear_layer(self.non_linear_layers(latent_variable)) # batch_size x num_introns
         potentials[:, intron_group_idx_start] = 0.0
 
@@ -634,6 +631,11 @@ class IntronsDecoder(nn.Module):  # double check forward pass for understanding 
         return p
 
 class ZIDMTranscriptUsageDecoder(nn.Module):
+    r"""
+    Decoder for a generative model of alternative-splicing induced transcript usage data with the heuristic
+    Zero-Inflated Dirichlet-Multinomial (ZIDM) surrogate of the ZANDIM log-likelihood. It returns exon junction (intron)
+    proportions normalized within each isoform (intron) group and logits of the excess-of-zeros probabilities.
+    """
     def __init__(
             self,
             intron_groups: torch.Tensor,
@@ -645,6 +647,24 @@ class ZIDMTranscriptUsageDecoder(nn.Module):
             num_hidden_units: int = 128,
             dropout_rate: float = 0.1,
     ) -> None:
+        r"""
+        This class is the decoder for the transcript usage Variational Inference (tuVI) variational autoencoder with the
+        heuristic ZIDM as surrogate for the ZANIDM log-likelihood (ZIDMTranscriptUsageVAE). It takes the latent
+        representation as input and decodes it into a vector of reconstructed intron proportions (psi scores) and logits
+        of the excess-of-zeros parameter which are returned. The decoder is a neural network that consists of a series
+        of fully connected layers followed by two linear layers that output the reconstructed intron proportions and
+        logits of the excess-of-zeros parameter. The decoder also takes into account the intron groups and their
+        summation to ensure that the reconstructed intron proportions are valid.
+
+        :param intron_groups: (torch.Tensor) A tensor containing the indices of the first intron of each intron group.
+        :param intron_group_summation: (torch.sparse_coo_tensor) A sparse tensor representing the summation of intron groups.
+        :param input_dim: (int) The dimension of the latent representation.
+        :param output_dim: (int) The dimension of the output features (data space).
+        :param num_cat_list: (list) A list of integers representing the number of categories for each categorical variable.
+        :param num_hidden_layers: (int) The number of hidden layers in the decoder network
+        :param num_hidden_units: (int) The number of units in each hidden layer.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        """
         super(ZIDMTranscriptUsageDecoder, self).__init__()
         #self.intron_groups = intron_groups
         #self.intron_group_summation = intron_group_summation
@@ -668,8 +688,12 @@ class ZIDMTranscriptUsageDecoder(nn.Module):
 
     def forward(self, x: torch.Tensor, intron_group_idx_start: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""
-        Forward pass of the decoder. The decoding neural network takes the latent representation as input and
-        decodes it into an intron proportion reconstruction and logit zero-inflation probability which are returned as a tuple.
+        Forward pass of the decoder. The decoding neural network takes the latent representation as input and decodes it
+        into an intron proportion reconstruction and logit excess-of-zero parameter which are returned as a tuple.
+
+        :param x: (torch.Tensor) Latent representation of the data.
+        :param intron_group_idx_start: (torch.Tensor) Indices of the first intron of each intron group.
+        :returns: Tuple[torch.Tensor, torch.Tensor] The reconstructed intron proportions and the logit excess-of-zero parameters.
         """
         # Apply the decoding layers to the latent variable
         x_decoded = self.decoding_layers(x)
@@ -695,6 +719,11 @@ class ZIDMTranscriptUsageDecoder(nn.Module):
         return intron_proportion, logit_zero_inflation
 
 class ZANIDMTranscriptUsageDecoder(nn.Module):
+    r"""
+    Decoder for a generative model of alternative-splicing induced transcript usage data with the zero-and-N-inflated
+    Dirichlet-Multinomial (ZANIDM) observation model. It returns exon junction (intron) proportions normalized within
+    each isoform (intron) group and the excess-of-zeros probabilities.
+    """
     def __init__(
             self,
             intron_groups: torch.Tensor,
@@ -706,6 +735,25 @@ class ZANIDMTranscriptUsageDecoder(nn.Module):
             num_hidden_units: int = 128,
             dropout_rate: float = 0.1,
     ) -> None:
+        r"""
+        This class is the decoder for the transcript usage Variational Inference (tuVI) variational autoencoder with the
+        ZANIDM observation model (ZANIDMTranscriptUsageVAE). It takes the latent representation as input and decodes it
+        into a vector of reconstructed intron proportions (psi scores) and excess-of-zero parameters which are returned.
+        The decoder is a neural network that consists of a series of fully connected layers followed by two linear
+        layers that output the reconstructed intron proportions and excess-of-zero parameters. The decoder also takes
+        into account the intron groups and their summation to ensure that the reconstructed intron proportions are
+        valid. Also, the excess-of-zero parameters for each exon-junction (intron) are scaled to be in the range [0, 1]
+        using a sigmoid activation function.
+
+        :param intron_groups: (torch.Tensor) A tensor containing the indices of the first intron of each intron group.
+        :param intron_group_summation: (torch.sparse_coo_tensor) A sparse tensor representing the summation of intron groups.
+        :param input_dim: (int) The dimension of the latent representation.
+        :param output_dim: (int) The dimension of the output features (data space).
+        :param num_cat_list: (list) A list of integers representing the number of categories for each categorical variable.
+        :param num_hidden_layers: (int) (int) The number of hidden layers in the decoder network.
+        :param num_hidden_units: (int) The number of units in each hidden layer.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        """
         super(ZANIDMTranscriptUsageDecoder, self).__init__()
         #self.intron_groups = intron_groups
         #self.intron_group_summation = intron_group_summation
@@ -728,7 +776,7 @@ class ZANIDMTranscriptUsageDecoder(nn.Module):
 
     def forward(self, x: torch.Tensor, intron_group_idx_start: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""
-        Forward pass of teh decoder. The decoding neural network takes the latent representation as input and decodes it
+        Forward pass of the decoder. The decoding neural network takes the latent representation as input and decodes it
         into an intron proportion which will become the concentration parameter of the ZANIDM likelihood and an
         excess-of-zero parameter of the ZANIDM likelihood.
 
@@ -761,6 +809,9 @@ class ZANIDMTranscriptUsageDecoder(nn.Module):
         return intron_proportion, excess_of_zero
 
 class BetaVAE(nn.Module):
+    r"""
+    Base beta variational autoencoders with a Gaussian observation model and optional learned scaling.
+    """
     def __init__(
             self,
             input_dim: int,
@@ -772,6 +823,25 @@ class BetaVAE(nn.Module):
             device: str = "cuda",
             scaling_factor: bool = True,
     ):
+        r"""
+        This is the base class for the Beta Variational Autoencoder (BetaVAE) and its child classes (tuVI and used
+        within TRVI). The BetaVAE is a deep generative model that learns a latent representation of the input data by
+        maximizing the evidence lower bound (ELBO) with a Kullback-Leibler divergence term weighted by a factor beta.
+        The model consists of an encoder network that maps the input data to a latent space, and a decoder network that
+        reconstructs the input data from the latent representation. The BetaVAE can be configured to learn scaling
+        factors for the latent representation, which can be useful for certain applications. When training with
+        KL-warm-up, the beta parameter can be gradually increased from 0 to the desired value over a specified number
+        of epochs.
+
+        :param input_dim: (int) The dimension of the input features.
+        :param latent_dim: (int) The dimension of the latent representation. Default is 10.
+        :param beta: (float) The weight of the Kullback-Leibler divergence term in the ELBO. Default is 1.0.
+        :param num_hidden_layers: (int) The number of hidden layers in the encoder and decoder networks. Default is 1.
+        :param num_hidden_units: (int) The number of units in each hidden layer. Default is 128.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        :param device: (str) The device to run the model on. Default is "cuda".
+        :param scaling_factor: (bool) Whether to learn scaling factors for the latent representation. Default is True.
+        """
         super().__init__()
 
         self.beta = beta
@@ -812,13 +882,21 @@ class BetaVAE(nn.Module):
 
     def kullback_leibler_divergence(self, latent_mean: torch.Tensor, latent_var: torch.Tensor) -> torch.Tensor:
         r"""
-        Given the latent mean and the latent variance of the variational posterior,  the Kullback-Leibler divergence
-        :math:`D_{KL}(q_{\phi}((z)|x) || p_{\theta}(z))` between the variational posterior :math:`q_{\phi}((z)|x)` and
-        the prior :math:`p_{\theta}(z)` is computed. Here, both distributions are considered as Gaussian as in
-        Kingma et al. 2013.
+        Given the latent mean and the latent variance of the variational posterior,  the negative Kullback-Leibler
+        divergence (since we minimize the loss)
+        $-\mathrm{D_{KL}} (q_{\boldsymbol{\phi}_{TU}}(\mathbf{z}_n \mid \mathbf{x}_n^{(TU)}) \middle\| p(\mathbf{z}_n))$
+        between the variational posterior
+        $q_{\boldsymbol{\phi}_{TU}}(\mathbf{z}_n \mid \mathbf{x}_n^{(TU)}) = \mathcal{N} (\mathbf{z}_n \rvert \boldsymbol{\mu}_{\boldsymbol{\phi}_{TU}}( \mathbf{x}^{(TU)}_n ), \mathrm{diag}(\boldsymbol{\sigma}_{\boldsymbol{\phi}_{TU}}^2 (\mathbf{x}^{(TU)}_n ) ))$
+        and the prior $p(\mathbf{z}_n) = \mathcal{N}(\mathbf{0}, \mathbf{I}_L)$ is computed. Here, both distributions are
+        considered as Gaussian as in Kingma et al. 2013.
 
-        .. math::
-            D_{KL}(q_{\phi}((z)|x) || p_{\theta}(z)) = - \frac{1}{2} \sum_{l=1}^L (1 + 2 * \mathrm{log}(\sigma_l) - \mu_l^2 - \sigma_l^2 )
+        $$
+            - \mathrm{D_{KL}} (q_{\boldsymbol{\phi}_{TU}}(\mathbf{z}_n \mid \mathbf{x}_n^{(TU)}) \middle\| p(\mathbf{z}_n)) = \frac{1}{2} \sum_{l=1}^L ( 1 + 2 \log (\sigma_{n,l}) - \mu^2_{n,l} - \sigma^2_{n,l} ).
+        $$
+
+        with $\mu_{n,l} \coloneqq (\boldsymbol{\mu}_{\boldsymbol{\phi}_{TU}}( \mathbf{x}^{(TU)}_n ))_l$ and
+        $\sigma_{n,l} \coloneqq  (\boldsymbol{\sigma}_{\boldsymbol{\phi}_{TU}} (\mathbf{x}^{(TU)}_n ))_l$ being computed
+        by the decoder.
 
         :param latent_mean: (torch.Tensor) The mean vector of shape (batch size, latent_dim) of the variational posterior
         :param latent_var: (torch.Tensor) The variance vector of shape (batch size, latent_dim) of the variaitonal posterior
@@ -837,22 +915,23 @@ class BetaVAE(nn.Module):
     ) -> torch.Tensor:
         r"""
         The standard Beta VAE assumes a generative model with a Gaussian likelihood. Thus, the implemented
-        log-likelihood function is derived from the multivariate Gaussian distribution :math:`\mathcal{N}(\mathbf{x}
-        \rvert \boldsymbol{\mu}, \boldsymbol{\sigma}^2 \odot \mathbf{I})` with a mean vector :math:`\boldsymbol{\mu}
-        \in \mathbb{R}^D` and diagonal covariance matrix :math:`\boldsymbol{\sigma}^2 \odot \mathbf{I} \in
-        \mathbb{R}_+^{N \times N}`. The log-likelihood function is evaluated using the given data point x (torch.Tensor)
+        log-likelihood function is derived from the multivariate Gaussian distribution $\mathcal{N}(\mathbf{x}
+        \rvert \boldsymbol{\mu}, \boldsymbol{\sigma}^2 \odot \mathbf{I})$ with a mean vector $\boldsymbol{\mu}
+        \in \mathbb{R}^D$ and diagonal covariance matrix $\boldsymbol{\sigma}^2 \odot \mathbf{I} \in
+        \mathbb{R}_+^{N \times N}$. The log-likelihood function is evaluated using the given data point x (torch.Tensor)
          as well as the torch.Tensors corresponding to the keys "Mean" and the "Variance" of the dictionary
          generative_model. The Gaussian log-likelihood is then computed according to
 
-         ..math::
+         $$
             \mathrm{log} \, \mathcal{N}(\mathbf{x} \rvert \boldsymbol{\mu}, \boldsymbol{\sigma}^2 \odot \mathbf{I}) =
             -\frac{D}{2} \mathrm{log}(2 \pi) -\frac{1}{2}\sum_{d=1}^D \mathrm{log}(\sigma_d^2)
             - \frac{1}{2} \sum_{d=1}^D \frac{(x_d - \mu_d)^2}{\sigma_d^2}
+        $$
 
         :param x: (torch.Tensor) The data point(s). Shape is be (batch size, D) with D being the feature dimension.
-        :param generative_model: (Dict[str, torch.Tensor) Dictionary of the predicted parameters of the generative model.
+        :param generative_model: (Dict[str, torch.Tensor]) Dictionary of the predicted parameters of the generative model.
         :param min_variance: (float) minimum variance for numerical stability
-        :returns: log_likelihood (torch.Tensor) The sum of log-likelihoods over the last dimension (D) for each sample.
+        :return: log_likelihood (torch.Tensor) The sum of log-likelihoods over the last dimension (D) for each sample.
             The output shape will be of (batch_size, ).
         """
 
@@ -881,10 +960,30 @@ class BetaVAE(nn.Module):
 
 
     def negative_log_likelihood(self, x: torch.Tensor, generative_model: Dict[str, torch.Tensor]) -> torch.Tensor:
+        r"""
+        The negative log-likelihood is computed as the negative of the log-likelihood function. It is used as a part of
+        the loss function to be minimized during training. The negative log-likelihood is computed using the
+        log_likelihood function defined above.
+
+        :param x: (torch.Tensor) The data point(s). Shape is be (batch size, D) with D being the feature dimension.
+        :param generative_model: (Dict[str, torch.Tensor]) Dictionary of the predicted parameters of the generative model.
+        :return: negative_log_likelihood (torch.Tensor) The sum of negative log-likelihoods over the last dimension (D)
+            for each sample. The output shape will be of (batch_size, ).
+        """
         return -self.log_likelihood(x, generative_model)
 
     def variational_posterior(self, x: torch.Tensor, eps: torch.Tensor | None) -> Dict[str, torch.Tensor]:
         r"""
+        The variational posterior computes the mean and variance of the latent variable given the input data. It uses
+        the encoder network to compute the mean and variance of the latent variable. The variational posterior is
+        assumed to be a Gaussian distribution with a diagonal covariance matrix. The mean and variance are computed
+        using the encoder network and all computed entities necessary to define the variational posterior are returned
+        in a variational posterior dictionary. If eps is provided, a sample from the variational posterior is computed
+        using the reparameterization trick.
+
+        :param x: (torch.Tensor) The input data point(s). Shape is be (batch size, D) with D being the feature dimension.
+        :param eps: (torch.Tensor | None) A tensor of random noise for the reparameterization trick. If None, no sample is computed. Shape is (batch size, latent_dim) or (num_samples, batch size, latent_dim) if multiple samples are desired.
+        :return: variational_posterior_dict (Dict[str, torch.Tensor]) Dictionary containing the computed parameters of the variational posterior, including "Latent mean", "Latent variance", and optionally "Latent variable" if eps is provided, and "Scale factor" if scaling_factor is True.
         """
 
         # Check input data are positive real numbers
@@ -927,7 +1026,15 @@ class BetaVAE(nn.Module):
 
     def generative_model(self, latent_variable: torch.Tensor, scale: torch.Tensor | None) -> Dict[str, torch.Tensor]:
         r"""
-        The generative model computes the mean and variance of the Gaussian likelihood given the latent variable.
+        The generative model computes the mean and variance of the Gaussian likelihood given the latent variable. It
+        uses the decoder network to compute the mean and variance of the Gaussian likelihood. The generative model is
+        assumed to be a Gaussian distribution with a diagonal covariance matrix. The mean and variance are computed
+        using the decoder network and all computed entities necessary to define the generative model are returned in a
+        generative model dictionary. If scale is provided, the mean is scaled by the scale factor.
+
+        :param latent_variable: (torch.Tensor) The latent variable(s) sampled from the variational posterior. Shape is (batch size, latent_dim) or (num_samples, batch size, latent_dim) if multiple samples are desired.
+        :param scale: (torch.Tensor | None) A tensor of scale factors for the latent variable. If None, no scaling is applied. Shape is (batch size, 1) or (num_samples, batch size, 1) if multiple samples are desired.
+        :return: generative_model_dict (Dict[str, torch.Tensor]) Dictionary containing the computed parameters of the generative model, including "Mean", "Variance", and optionally "Scaled mean" if scale is provided.
         """
 
         # Create dictionary which stores the computed parameters of the generative model
@@ -947,7 +1054,17 @@ class BetaVAE(nn.Module):
         return generative_model_dict
 
     def forward(self, x: torch.Tensor, eps: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        r"""
+        The forward pass of the BetaVAE computes the negative evidence lower bound (ELBO) given the input data and a
+        sample from the variational posterior. It computes the variational posterior using the encoder, the generative
+        model using the decoder, the Kullback-Leibler divergence, and the negative log-likelihood. The negative ELBO is
+        then computed as the sum of the negative log-likelihood and the Kullback-Leibler divergence weighted by the beta
+        parameter. The function returns the ELBO, Kullback-Leibler divergence, and negative log-likelihood.
 
+        :param x: (torch.Tensor) The input data point(s). Shape is be (batch size, D) with D being the feature dimension.
+        :param eps: (torch.Tensor) A tensor of random noise for the reparameterization trick. Shape is (batch size, latent_dim) or (num_samples, batch size, latent_dim) if multiple samples are desired.
+        :return: Tuple[torch.Tensor, torch.Tensor, torch.Tensor] The negative ELBO, Kullback-Leibler divergence, and negative log-likelihood. Each tensor has shape (batch size, ) or (num_samples, batch size) if multiple samples are desired.
+        """
         # Compute variational posterior using the encoder
         variational_posterior_dict = self.variational_posterior(x, eps)
 
@@ -973,6 +1090,10 @@ class BetaVAE(nn.Module):
         return elbo, kld, nll
 
 class NBGeneExpressionVAE(BetaVAE):
+    r"""
+    Beta variational autoencoder for gene expression data with a negative binomial (NB) observation model. This
+    variational autoencoder is applied within TRVI if the NB is specified as observation model for gene expression data.
+    """
     def __init__(
             self,
             input_dim: int,
@@ -984,6 +1105,27 @@ class NBGeneExpressionVAE(BetaVAE):
             device: str = "cuda",
             scaling_factor: bool = True
     ) -> None:
+        r"""
+        This is the Beta Variational Autoencoder (BetaVAE) for gene expression data with a negative binomial likelihood
+        and is used within TRVI if a negative binomial distribution is used as observation model for gene expression
+        data. It inherits from the BetaVAE class and overrides the log_likelihood and generative_model methods to
+        implement the negative binomial likelihood. The decoder is also replaced with a NBGeneExpressionDecoder that
+        outputs the mean of the negative binomial distribution. The inverse dispersion parameter of the negative
+        binomial distribution is a learnable parameter that is initialized randomly and optimized during training.
+        The forward method is also overridden to compute the negative ELBO, Kullback-Leibler divergence, and negative
+        log-likelihood using the negative binomial likelihood. The model can be configured to learn scaling factors for
+        the latent representation, which can be useful for certain applications. When training with KL-warm-up, the beta
+        parameter can be gradually increased from 0 to the desired value over a specified number of epochs.
+
+        :param input_dim: (int) The dimension of the input features.
+        :param latent_dim: (int) The dimension of the latent representation. Default is 10.
+        :param beta: (float) The weight of the Kullback-Leibler divergence term in the ELBO. Default is 1.0.
+        :param num_hidden_layers: (int) The number of hidden layers in the encoder and decoder networks. Default is 1.
+        :param num_hidden_units: (int) The number of units in each hidden layer. Default is 128.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        :param device: (str) The device to run the model on. Default is "cuda".
+        :param scaling_factor: (bool) Whether to learn scaling factors for the latent representation. Default is True.
+        """
         super(NBGeneExpressionVAE, self).__init__(
             input_dim=input_dim,
             latent_dim=latent_dim,
@@ -1014,21 +1156,22 @@ class NBGeneExpressionVAE(BetaVAE):
     ) -> torch.Tensor:
         r"""
         This implementation of a Beta-VAE for gene expression data assumes a generative model with a negative binomial
-        likelihood. Thus, the log-likelihood function is derived from the negative binomial distribution `:math:
-        \mathrm{NB}(x \rvert \mu, \theta)` with mean `:math: \mu > 0` and inverse dispersion `:math: \theta > 0`. The
+        likelihood. Thus, the log-likelihood function is derived from the negative binomial distribution $
+        \mathrm{NB}(x \rvert \mu, \theta)$ with mean $\mu > 0$ and inverse dispersion $\theta > 0$. The
          log-likelihood function is evaluated using the given data point x (torch.Tensor) as well as the torch.Tensors
          corresponding to the keys "Mean" and "Inverse dispersion" of the dictionary generative_model. The negative
          binomial log-likelihood is then computed according to
 
-         ..math::
+         $$
             \begin{split}
                 \mathrm{log} \, \mathrm{NB}(x \rvert \mu, \theta) &= \mathrm{log} \, \Gamma(x + \theta)
                 - \mathrm{log} \, \Gamma(x + 1) - \mathrm{log} \, \Gamma(\theta) \\
                 &\quad + \theta(\mathrm{log}(\theta + \epsilon) - \mathrm{log} \,(\theta + \mu + \epsilon)) \\
                 &\quad + x (\mathrm{log} (\mu + \epsilon) - \mathrm{log} \,(\theta + \mu + \epsilon))
             \end{split}
+        $$
 
-        where `:math: \epsilon = 1e-8` is included for the purpose of numerical stability. The function returns the
+        where $\epsilon = 1e-8$ is included for the purpose of numerical stability. The function returns the
         log-likelihood.
 
         :param x: (torch.Tensor) The data point(s). Shape is be (batch size, D) with D being the feature dimension.
@@ -1062,6 +1205,18 @@ class NBGeneExpressionVAE(BetaVAE):
         return log_likelihood
 
     def generative_model(self, latent_variable: torch.Tensor, scale: torch.Tensor | None) -> Dict[str, torch.Tensor]:
+        r"""
+        The generative model computes the mean and inverse dispersion of the negative binomial likelihood given the
+        latent variable. It uses the decoder network to compute the mean of the negative binomial likelihood. The
+        inverse dispersion parameter is a learnable parameter that is initialized randomly and optimized during
+        training. The mean and inverse dispersion are computed using the decoder network and all computed entities
+        necessary to define the generative model are returned in a generative model dictionary. If scale is provided,
+        the mean is scaled by the scale factor.
+
+        :param latent_variable: (torch.Tensor) The latent variable(s) sampled from the variational posterior. Shape is (batch size, latent_dim) or (num_samples, batch size, latent_dim) if multiple samples are desired.
+        :param scale: (torch.Tensor | None) A tensor of scale factors for the latent variable. If None, no scaling is applied. Shape is (batch size, 1) or (num_samples, batch size, 1) if multiple samples are desired.
+        :return: generative_model_dict (Dict[str, torch.Tensor]) Dictionary containing the computed parameters of the generative model, including "Mean", "Inverse dispersion", and optionally "Scaled mean" if scale is provided
+        """
 
         # Create dictionary which stores the computed parameters of the generative model
         generative_model_dict = {}
@@ -1083,6 +1238,17 @@ class NBGeneExpressionVAE(BetaVAE):
             x: Tuple[torch.Tensor, torch.Tensor],
             eps: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        r"""
+        The forward pass of the BetaVAE computes the negative evidence lower bound (ELBO) given the input data and a
+        sample from the variational posterior. It computes the variational posterior using the encoder, the generative
+        model using the decoder, the Kullback-Leibler divergence, and the negative log-likelihood. The negative ELBO is
+        then computed as the sum of the negative log-likelihood and the Kullback-Leibler divergence weighted by the beta
+        parameter. The function returns the ELBO, Kullback-Leibler divergence, and negative log-likelihood.
+
+        :param x: (Tuple[torch.Tensor, torch.Tensor]) The input data point(s) and gene expression levels. The first tensor is the gene expression counts of shape (batch size, D) with D being the feature dimension. The second tensor is the gene expression levels of shape (batch size, D).
+        :param eps: (torch.Tensor) A tensor of random noise for the reparameterization trick. Shape is (batch size, latent_dim) or (num_samples, batch size, latent_dim) if multiple samples are desired.
+        :return: Tuple[torch.Tensor, torch.Tensor, torch.Tensor] The negative ELBO, Kullback-Leibler divergence, and negative log-likelihood. Each tensor has shape (batch size, ) or (num_samples, batch size) if multiple samples are desired.
+        """
 
         # Extract gene expression counts and levels
         x_counts, x_levels = x
@@ -1112,6 +1278,11 @@ class NBGeneExpressionVAE(BetaVAE):
         return elbo, kld, nll
 
 class ZINBGeneExpressionVAE(BetaVAE):
+    r"""
+    Beta variational autoencoder for gene expression data with a zero-inflated negative binomial (ZINB) observation
+    model. This variational autoencoder is applied within TRVI if the ZINB is specified as observation model for gene
+    expression data.
+    """
     def __init__(
             self,
             input_dim: int,
@@ -1123,6 +1294,28 @@ class ZINBGeneExpressionVAE(BetaVAE):
             device: str = "cuda",
             scaling_factor: bool = True
     ) -> None:
+        r"""
+        This is the Beta Variational Autoencoder (BetaVAE) for gene expression data with a zero-inflated negative
+        binomial likelihood (ZINB) and is used within TRVI if a zero-inflated negative binomial distribution is used as
+        observation model for gene expression data. It inherits from the BetaVAE class and overrides the log_likelihood
+        and generative_model methods to implement the ZINB likelihood. The decoder is also replaced with a
+        ZINBGeneExpressionDecoder that outputs the mean and the logits of the zero-inflation probability of the ZINB
+        distribution. The inverse dispersion parameter of the ZINB distribution is a learnable parameter that is
+        initialized randomly and optimized during training. The forward method is also overridden to compute the
+        negative ELBO, Kullback-Leibler divergence, and negative log-likelihood using the ZINB likelihood. The model can
+        be configured to learn scaling factors for the latent representation, which can be useful for certain
+        applications. When training with KL-warm-up, the beta parameter can be gradually increased from 0 to the desired
+        value over a specified number of epochs.
+
+        :param input_dim: (int) The dimension of the input features.
+        :param latent_dim: (int) The dimension of the latent representation. Default is 10.
+        :param beta: (float) The weight of the Kullback-Leibler divergence term in the ELBO. Default is 1.0.
+        :param num_hidden_layers: (int) The number of hidden layers in the encoder and decoder networks. Default is 1.
+        :param num_hidden_units: (int) The number of units in each hidden layer. Default is 128.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        :param device: (str) The device to run the model on. Default is "cuda".
+        :param scaling_factor: (bool) Whether to learn scaling factors for the latent representation. Default is True.
+        """
         super(ZINBGeneExpressionVAE, self).__init__(
             input_dim=input_dim,
             latent_dim=latent_dim,
@@ -1154,23 +1347,24 @@ class ZINBGeneExpressionVAE(BetaVAE):
         r"""
         This implementation of a Beta-VAE for gene expression data assumes a generative model with a zero-inflated
         negative binomial (ZINB) likelihood. Thus, the log-likelihood function is derived from the ZINB distribution
-        `:math: \mathrm{ZINB}(x \rvert \mu, \theta, \pi_0)` with mean `:math: \mu > 0`, inverse dispersion
-        `:math: \theta > 0`, and zero-inflation probability `:math: \pi_0 \in [0, 1]`. Instead of the zero-inflation
-        probability `:math: \pi_0`, the log-likelihood uses the logits of the zero-inflation probability
-        `:math: \rho = \mathrm{logit} \, \pi_0`  which are the direct output of the decoder. The log-likelihood function
+        $\mathrm{ZINB}(x \rvert \mu, \theta, \pi_0)$ with mean `$\mu > 0$, inverse dispersion
+        $\theta > 0$, and zero-inflation probability $\pi_0 \in [0, 1]$. Instead of the zero-inflation
+        probability $\pi_0$, the log-likelihood uses the logits of the zero-inflation probability
+        $\rho = \mathrm{logit} \, \pi_0$  which are the direct output of the decoder. The log-likelihood function
         is evaluated using the given data point x (torch.Tensor) as well as the torch.Tensors corresponding to the keys
         "Mean" or "Scaled mean", "Inverse dispersion", and "Logit of zero-inflation probability" of the dictionary
         generative_model. The ZINB log-likelihood is then computed according to
 
-        ..math::
+        $$
             \mathrm{log} \, \mathrm{ZINB}(x \rvert \mu, \theta, \rho) = \begin{cases}
                 \mathrm{softplus}(-\rho + \mathrm{log} \, \mathrm{NB}(x \rvert \mu, \theta)) - \mathrm{softplus}(-\rho)
                 & \text{if } x = 0 \\
                 -\rho - \mathrm{softplus}(-\rho) + \mathrm{log} \,\mathrm{NB}(x \rvert \mu, \theta)
                 & \text{if } x \neq 0
             \end{cases}
+        $$
 
-        where `:math: \mathrm{NB}(x \rvert \mu, \theta)` is the negative binomial distribution. The function returns the
+        where $$\mathrm{NB}(x \rvert \mu, \theta)$$ is the negative binomial distribution. The function returns the
         log-likelihood.
 
         :param x: (torch.Tensor) The data point(s). Shape is be (batch size, D) with D being the feature dimension.
@@ -1227,7 +1421,20 @@ class ZINBGeneExpressionVAE(BetaVAE):
         return log_likelihood
 
     def generative_model(self, latent_variable: torch.Tensor, scale: torch.Tensor | None) -> Dict[str, torch.Tensor]:
+        r"""
+        The generative model computes the mean, inverse dispersion, and zero-inflation probability of the ZINB
+        observation model given the latent variable. It uses the decoder network to compute the mean and the logits of
+        the zero-inflation probability of the ZINB likelihood. The inverse dispersion parameter is a learnable parameter
+        that is initialized randomly and optimized during training. The mean, inverse dispersion, and zero-inflation
+        probability are computed using the decoder network and all computed entities necessary to define the generative
+        model are returned in a generative model dictionary. If scale is provided, the mean is scaled by the scale
+        factor.
 
+        :param latent_variable: (torch.Tensor) The latent variable(s) sampled from the variational posterior. Shape is (batch size, latent_dim) or (num_samples, batch size, latent_dim) if multiple samples are desired.
+        :param scale: (torch.Tensor | None) A tensor of scale factors for the latent variable. If None, no scaling is applied. Shape is (batch size, 1) or (num_samples, batch size, 1) if multiple samples are desired.
+        :return: generative_model_dict (Dict[str, torch.Tensor]) Dictionary containing the computed parameters of the
+            generative model, including "Mean", "Inverse dispersion", "Logit zero-inflation probability", and optionally "Scaled mean" if scale is provided.
+        """
         # Create dictionary which stores the computed parameters of the generative model
         generative_model_dict = {}
 
@@ -1268,6 +1475,17 @@ class ZINBGeneExpressionVAE(BetaVAE):
             x: Tuple[torch.Tensor, torch.Tensor],
             eps: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        r"""
+        The forward pass of the BetaVAE computes the negative evidence lower bound (ELBO) given the input data and a
+        sample from the variational posterior. It computes the variational posterior using the encoder, the generative
+        model using the decoder, the Kullback-Leibler divergence, and the negative log-likelihood. The negative ELBO is
+        then computed as the sum of the negative log-likelihood and the Kullback-Leibler divergence weighted by the beta
+        parameter. The function returns the ELBO, Kullback-Leibler divergence, and negative log-likelihood.
+
+        :param x: (Tuple[torch.Tensor, torch.Tensor]) The input data point(s) and gene expression levels. The first tensor is the gene expression counts of shape (batch size, D) with D being the feature dimension. The second tensor is the gene expression levels of shape (batch size, D).
+        :param eps: (torch.Tensor) A sample from the variational posterior.
+        :return: Tuple[torch.Tensor, torch.Tensor, torch.Tensor] The negative ELBO, Kullback-Leibler divergence, and negative log-likelihood. Each tensor has shape (batch size, ) or (num_samples, batch size) if multiple samples are desired.
+        """
 
         # Extract gene expression counts and levels
         x_counts, x_levels = x
@@ -1297,6 +1515,11 @@ class ZINBGeneExpressionVAE(BetaVAE):
         return elbo, kld, nll
 
 class DMTranscriptUsageVAE(BetaVAE):
+    r"""
+    transcript usage Variational Inference (tuVI) variational autoencoder for alternative-splicing induced transcript
+    usage data when a Dirichlet-Multinomial (DM) observation model is applied (tuVI-DM). It is also used within TRVI if its
+    observation model is specified as DM.
+    """
     def __init__(
             self,
             input_dim: int, # number of introns
@@ -1310,6 +1533,29 @@ class DMTranscriptUsageVAE(BetaVAE):
             device: str = "cuda",
             scaling_factor: bool = False
     ) -> None:
+        r"""
+        This is the class for the transcript usage Variational Inference (tuVI) variational autoencoder when a
+        Dirichlet-Multinomial (DM) observation model is used. It inherits from the BetaVAE class and overrides the
+        log_likelihood and generative_model methods to implement the DM likelihood. The decoder is
+        also replaced with a IntronsDecoder that outputs the exon junction (intron) proportion vector used for the
+        concentration parameter of the DM distribution. The feature precision parameter of the DM distribution is a
+        learnable parameter that is initialized randomly and optimized during training. The forward method is also
+        overridden to compute the negative ELBO, Kullback-Leibler divergence, and negative log-likelihood using the DM
+        likelihood. The model can be configured to learn scaling factors for the latent representation, which can be
+        useful for certain applications. When training with KL-warm-up, the beta parameter can be gradually increased
+        from 0 to the desired value over a specified number of epochs.
+
+        :param input_dim: (int) The dimension of the input features (number of introns).
+        :param num_intron_groups: (int) The number of intron groups.
+        :param intron_groups: (np.ndarray) An array of shape (input_dim,) containing the group index for each intron.
+        :param latent_dim: (int) The dimension of the latent representation. Default is 10.
+        :param beta: (float) The weight of the Kullback-Leibler divergence term in the ELBO. Default is 1.0.
+        :param num_hidden_layers: (int) The number of hidden layers in the encoder and decoder networks. Default is 1.
+        :param num_hidden_units: (int) The number of units in each hidden layer. Default is 128.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        :param device: (str) The device to run the model on. Default is "cuda".
+        :param scaling_factor: (bool) Whether to learn scaling factors for the latent representation. Default is False.
+        """
         super(DMTranscriptUsageVAE, self).__init__(
             input_dim=input_dim,
             latent_dim=latent_dim,
@@ -1389,20 +1635,21 @@ class DMTranscriptUsageVAE(BetaVAE):
             **kwargs
     ) -> torch.Tensor:
         r"""
-        Given the vector alpha (torch.Tensor) controlling the shape and concentration strength of the
-        Dirichlet-Multinomial distribution and a count data point x (torch.Tensor) the log likelihood is computed via
+        Given the concentration in the the generative model dictionary of the log likelihood of the
+        Dirichlet-Multinomial distribution for a count data point x (torch.Tensor) is computed via
 
-        ..math::
+        $$
             \mathrm{log} \, \mathrm{DirMult}(\mathbf{x} \rvert n, \boldsymbol{\alpha}) = \mathrm{log} \,
             \Gamma(\alpha_0) + \mathrm{log} \, \Gamma(n+1) - \mathrm{log} \, \Gamma(n + \alpha_0) + \sum_{k=1}^K
             \mathrm{log} \, \Gamma(x_k + \alpha_k) - \mathrm{log} \,\Gamma(\alpha_k) - \mathrm{log} \, \Gamma(\alpha_k) -
             \mathrm{log} \, \Gamma(x_k + 1)
+        $$
 
         The function returns the log-likelihood as torch.Tensor.
 
-        :param x:
-        :param generative_model:
-        :return: log_likelihood
+        :param x: (torch.Tensor) The data point(s). Shape is be (batch size, D) with D being the feature dimension.
+        :param generative_model: (Dict[str, torch.Tensor) Dictionary of the predicted parameters of the generative model.
+        :return: log_likelihood (torch.Tensor) The sum of log-likelihoods over the last dimension (D) for each sample. The output shape will be of (batch_size, )
         """
         # Extract alpha from the generative model
         alpha = generative_model["Concentration"]
@@ -1428,7 +1675,17 @@ class DMTranscriptUsageVAE(BetaVAE):
 
     def generative_model(self, latent_variable: torch.Tensor, x: torch.Tensor | None) -> Dict[str, torch.Tensor]:
         r"""
-        x are the counts
+        The generative model computes the concentration parameter of the Dirichlet-Multinomial distribution given the
+        latent variable. It uses the decoder network to compute the intron proportion vector used for the concentration
+        parameter of the Dirichlet-Multinomial distribution. The feature precision parameter is a learnable parameter
+        that is initialized randomly and optimized during training. The concentration parameter is computed using the
+        decoder network and all computed entities necessary to define the generative model are returned in a generative
+        model dictionary. If x is provided, the number of trials is computed as the sum of counts for each intron group
+        and added to the generative model dictionary.
+
+        :param latent_variable: (torch.Tensor) The latent variable(s) sampled from the variational posterior. Shape is (batch size, latent_dim) or (num_samples, batch size, latent_dim) if multiple samples are desired.
+        :param x: (torch.Tensor | None) A tensor of counts for each intron group. If None, the number of trials is not computed. Shape is (batch size, D) with D being the feature dimension or (num_samples, batch size, D) if multiple samples are desired.
+        :return: generative_model_dict (Dict[str, torch.Tensor]) Dictionary containing the computed parameters of the generative model, including "Feature precision", "Intron proportion", "Concentration", "Sum of concentration", and optionally "Number of trials" and "Mean" if x is provided.
         """
         # Create dictionary which stores the computed parameters of the generative model
         generative_model_dict = {}
@@ -1465,6 +1722,16 @@ class DMTranscriptUsageVAE(BetaVAE):
             x: Tuple[torch.Tensor, torch.Tensor],
             eps: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        r"""
+        The forward pass of the BetaVAE computes the negative evidence lower bound (ELBO) given the input data and a
+        sample from the variational posterior. It computes the variational posterior using the encoder, the generative
+        model using the decoder, the Kullback-Leibler divergence, and the negative log-likelihood. The negative ELBO is
+        then computed as the sum of the negative log-likelihood and the Kullback-Leibler divergence weighted by the beta
+        parameter. The function returns the ELBO, Kullback-Leibler divergence, and negative log-likelihood.
+
+        :param x:
+        :param eps:
+        """
 
         # Extract intron counts and intron levels (i.e. log(1+x)-normalised counts or PSI-scores)
         x_counts, x_levels = x
@@ -1490,6 +1757,12 @@ class DMTranscriptUsageVAE(BetaVAE):
         return elbo, kld, nll
 
 class ZIDMTranscriptUsageVAE(BetaVAE):
+    r"""
+    transcript usage Variational Inference (tuVI) variational autoencoder for alternative-splicing induced transcript
+    usage data when a heuristic Zero-Inflated Dirichlet-Multinomial (ZIDM) surrogate of the ZANIDM log-likelihood is
+    applied (tuVI-ZIDM). It is also used within TRVI if its observation model is specified as ZIDM. Note that the ELBO
+    here is strictly speaking a training objective since ZIDM is a surrogate and not a true log-likelihood.
+    """
     def __init__(
             self,
             input_dim: int,  # number of introns
@@ -1503,6 +1776,31 @@ class ZIDMTranscriptUsageVAE(BetaVAE):
             device: str = "cuda",
             scaling_factor: bool = False
     ) -> None:
+        r"""
+        This is the class for the transcript usage Variational Inference (tuVI) variational autoencoder when the
+        heuristic Zero-Inflated Dirichlet-Multinomial (ZIDM) surrogate for the ZANIDM log-likelihood is used. It
+        inherits from the BetaVAE class and overrides the log_likelihood and generative_model methods to implement the
+        heuristic ZIDM surrogate for the ZANIDM log-likelihood. The decoder is also replaced with a
+        ZIDMTranscriptUsageDecoder that outputs the exon junction (intron) proportion vector used for the concentration
+        parameter of the heuristic ZIDM surrogate as well as the logits of the zero-inflation probability. The feature
+        precision parameter of the heurstic ZIDM surrogate is a learnable parameter that is initialized randomly and
+        optimized during training. The forward method is also overridden to compute the negative ELBO, Kullback-Leibler
+        divergence, and negative log-likelihood using the ZIDM likelihood. The model can be configured to learn scaling
+        factors for the latent representation, which can be useful for certain applications. When training with
+        KL-warm-up, the beta parameter can be gradually increased from 0 to the desired value over a specified number
+        of epochs.
+
+        :param input_dim: (int) The dimension of the input features (number of introns).
+        :param num_intron_groups: (int) The number of intron groups.
+        :param intron_groups: (np.ndarray) An array of shape (input_dim,) containing the group index for each intron.
+        :param latent_dim: (int) The dimension of the latent representation. Default is 10.
+        :param beta: (float) The weight of the Kullback-Leibler divergence term in the ELBO. Default is 1.0.
+        :param num_hidden_layers: (int) The number of hidden layers in the encoder and decoder networks. Default is 1.
+        :param num_hidden_units: (int) The number of units in each hidden layer. Default is 128.
+        :param dropout_rate: (float) The dropout rate for regularization. Default is 0.1.
+        :param device: (str) The device to run the model on. Default is "cuda".
+        :param scaling_factor: (bool) Whether to learn scaling factors for the latent representation. Default is False.
+        """
         super(ZIDMTranscriptUsageVAE, self).__init__(
             input_dim=input_dim,
             latent_dim=latent_dim,
@@ -1584,22 +1882,31 @@ class ZIDMTranscriptUsageVAE(BetaVAE):
         r"""
         Given a count data point x (torch.Tensor) and the generative model dictionary generative_model containing the
         concentration parameter alpha (torch.Tensor), and the logit of the zero-inflation probability rho
-        (torch.Tensor), this implementation computes the log likelihood of the zero-inflated Dirichlet-Multinomial
-        distribution. Instead of the zero-inflation probability `:math: \pi_0`, the log-likelihood uses the logits of
-        the zero-inflation probability `:math: \rho = \mathrm{logit} \, \pi_0` which are the direct output of the
+        (torch.Tensor), this implementation computes the heuristic ZIDM surrogate of the ZANIDM log likelihood. Instead
+        of the zero-inflation probability $\pi_0$, the log-likelihood uses the logits of
+        the zero-inflation probability $\mathrm{logit} \, \pi_0$ which are the direct output of the
         decoder. The log-likelihood function is computed according to
 
-        ..math::
-            \mathrm{log} \, \mathrm{ZIDM}(\mathbf{x} \rvert n, \hat{n}, \boldsymbol{\alpha}, \rho) = \begin{cases}
-                \mathrm{softplus}(-\rho + \mathrm{log} \, \mathrm{DirMult}(\mathbf{x} | \hat{n}, \boldsymbol{\alpha}))
-                - \mathrm{softplus}(-\rho) & \text{if } \mathbf{x} = \mathbf{0} \\
-                -\rho - \mathrm{softplus}(-\rho) + \mathrm{log} \,\mathrm{DirMult}(\mathbf{x} | n, \boldsymbol{\alpha}))
-                & \text{if } \mathbf{x} \neq \mathbf{0}
-            \end{cases}
+        $$
+            H^{\mathrm{ZIDM}}(\mathbf{x}^{(TU)} \rvert \boldsymbol{\alpha}, \boldsymbol{\rho}, N, \overline{N}^{(\mathcal{B})}) =  \begin{cases}
+                \sum_{d=1}^{D} (\mathcal{S}(-\rho_{d} + \log  (h^{\mathrm{DM}}(\boldsymbol{\alpha}, \overline{N}^{(\mathcal{B})}))) - \mathcal{S}(-\rho_{d})) & \text{if } N = 0 \\
+                \sum_{d=1}^{D} (-\rho_{d} - \mathcal{S}(-\rho_{d}) + \log  \mathrm{DM} \left(\mathbf{x}^{(TU)} \rvert \boldsymbol{\alpha}, N \right)) & \text{if } N > 0
+        \end{cases}
+        $$
 
-        where `:math: \mathrm{DirMult}(\mathbf{x} | n, \boldsymbol{\alpha})` is the Dirichlet-Multinomial
-        distribution. The number of trials `:math: n` is computed as the sum of the counts in each intron group for
-        each batch. For the case `:math: \mathbf{x} = \mathbf{0}`, the number of trials is set to `:math: \hat{n}`
+        with
+
+        $$
+            h^{\mathrm{DM}}(\boldsymbol{\alpha}, \overline{N}^{(\mathcal{B})}) = \mathrm{sigmoid}\left(\log \frac{\Gamma(\alpha_{0}) \Gamma(\overline{N}^{(\mathcal{B})} + 1)}{\Gamma(\overline{N}^{(\mathcal{B})} + \alpha_{0})} \right) \in [0, 1]
+        $$
+
+        where $\mathrm{DM} \left(\mathbf{x}^{(TU)} \rvert \boldsymbol{\alpha}, N \right)$ is the Dirichlet-Multinomial
+        distribution. The number of trials $N$ is computed as the sum of the counts in each intron group for
+        each batch. For the case $\mathbf{x} = \mathbf{0}$, the number of trials is set to
+
+        $$
+            \overline{N}^{(\mathcal{B})} = \ceil*{\frac{1}{M}{\sum_{n \in \mathcal{B}} (N_{n} + 1)}}
+        $$
         which is the average of number trials for each intron group in the batch where the minimum is set to 1.
         This ensures the zero-inflation model is still a valid probability mass function. The function returns the
         log-likelihood as a torch.Tensor.
@@ -1669,7 +1976,18 @@ class ZIDMTranscriptUsageVAE(BetaVAE):
 
     def generative_model(self, latent_variable: torch.Tensor, x: torch.Tensor | None) -> Dict[str, torch.Tensor]:
         r"""
-        x are the counts
+        The generative model computes the concentration parameter, and the logit of the zero-inflation probability given
+        the latent variable for the heuristic ZIDM surrogate. It uses the decoder network to compute the intron
+        proportion vector used for the concentration parameter of the heuristic ZIDM surrogate as well as the logits of
+        the zero-inflation probability. The feature precision parameter is a learnable parameter that is initialized
+        randomly and optimized during training. The concentration parameter is computed using the decoder network and
+        all computed entities necessary to define the generative model are returned in a generative model dictionary.
+        If x is provided, the number of trials is computed as the sum of counts for each intron group and added to the
+        generative model dictionary.
+
+        :param latent_variable: (torch.Tensor) The latent variable(s) sampled from the variational posterior. Shape is (batch size, latent_dim) or (num_samples, batch size, latent_dim) if multiple samples are desired.
+        :param x: (torch.Tensor | None) A tensor of counts for each intron group. If None, the number of trials is not computed. Shape is (batch size, D) with D being the feature dimension or (num_samples, batch size, D) if multiple samples are desired.
+        :return: generative_model_dict (Dict[str, torch.Tensor]) Dictionary containing the computed parameters of the generative model, including "Feature precision", "Intron proportion", "Logit zero-inflation probability", "Concentration", "Sum of concentration", and optionally "Number of trials" and "Mean"
         """
         # Create dictionary which stores the computed parameters of the generative model
         generative_model_dict = {}
@@ -1796,6 +2114,17 @@ class ZIDMTranscriptUsageVAE(BetaVAE):
             x: torch.Tensor,
             eps: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        r"""
+        The forward pass of the BetaVAE computes the negative evidence lower bound (ELBO) given the input data and a
+        sample from the variational posterior. It computes the variational posterior using the encoder, the generative
+        model using the decoder, the Kullback-Leibler divergence, and the negative log-likelihood. The negative ELBO
+        (objective since the heuristic ZIDM surrogate is not a true log-likelihood) is then computed as the sum of the
+        negative heuristic ZIDM surrogate and the Kullback-Leibler divergence weighted by the beta parameter. The
+        function returns the negative "ELBO", Kullback-Leibler divergence, and negative heuristic ZIDM surrogate.
+
+        :param x: (torch.Tensor) The input data point(s) are log(1 + x) transformed intron group count vectors. Shape is (batch size, D) with D being the feature dimension.
+        :param eps: (torch.Tensor) A sample from the variational posterior. Shape is (batch size, latent_dim) or (num_samples, batch size, latent_dim) if multiple samples are desired.
+        """
 
         # Extract intron counts and intron levels (i.e. log(1+x)-normalised counts or PSI-scores)
         x_counts, x_levels = x
@@ -1821,6 +2150,11 @@ class ZIDMTranscriptUsageVAE(BetaVAE):
         return elbo, kld, nll
 
 class ZANIDMTranscriptUsageVAE(BetaVAE):
+    r"""
+    transcript usage Variational Inference (tuVI) variational autoencoder for alternative-splicing induced transcript
+    usage data when a zero-and-N-inflated Dirichlet-Multinomial (ZANIDM) observation model is applied (tuVI-ZANIDM). It
+    is also used within TRVI if its observation model is specified as ZANIDM.
+    """
     def __init__(
             self,
             input_dim: int,  # number of introns
@@ -1918,58 +2252,41 @@ class ZANIDMTranscriptUsageVAE(BetaVAE):
         Given a count data point x (torch.Tensor) and the generative model dictionary generative_model containing the
         concentration parameter alpha (torch.Tensor), and the excess-of-zeros probability (torch.Tensor), and the
         corresponding mixing weights, the log-likelihood of the zero-and-one-inflated Dirichlet-Multinomial is computed
-        for counts `:math: \mathbf{x}^{(g)} = [x_1, \dots, x_d]^T` of one intro group consisting via
+        for counts $\mathbf{x}^{(TU)} = [x_1, \dots, x_D]^T$ of one isoform group count vector. Dependent on the
+        observed isoform group count vector $\mathbf{x}^{(TU)}$, the ZANIDM distribution can be broken down into the
+        four cases and their respective log-likelihood is computed. For case 1
+        ($N > 0 \, \land \forall d \, x^{(TU)}_d > 0$),  the log-likelihood is obtained by
 
-        ..math::
+        $$
             \begin{split}
-                \log \mathrm{ZANIDM}(\mathbf{x}^{(g)}; \boldsymbol{\alpha}, \boldsymbol{\zeta})
-                &= \log (\eta_d \frac{\Gamma(\hat{\alpha}) \Gamma(N + 1)}{\Gamma(N + \hat{\alpha})}
-                \prod_{j=1}^d \frac{\Gamma(x^{(g)}_j + \alpha_j)}{\Gamma(\alpha_j)\Gamma(x^{(g)}_j + 1)} \\
-                &+ \sum_{j=1}^d \eta_N^{(j)} \left(\mathbf{1}_0 \left(\sum_{k:k \neq j} x^{(g)}_k \right) \right) \\
-                &+ \sum_{\mathcal{K} \in \tilde{\mathcal{K}}} \eta_{\mathcal{K}}
-                \left( \mathbf{1}_0 \left( \sum_{i \in \mathcal{K}} x^{(g)}_i \right) \right)
-                \frac{\Gamma(\hat{\alpha}_{\mathcal{K}}) \Gamma(N + 1)}{\Gamma(N + \hat{\alpha}_{\mathcal{K}})}
-                \prod_{j \notin \mathcal{K}} \frac{\Gamma(x^{(g)}_j + \alpha_j)}{\Gamma(\alpha_j) \Gamma(x^{(g)}_j + 1)}
-                \\ &+ \eta_0 \prod_{j=1}^d  \mathbf{1}_0(x^{(g)}_j)),
-                \mathrm{with} \, \mathbf{x}^{(g)} \in \mathbf{\Omega}^0_{d,N}
+                \log \mathrm{ZANIDM}(\mathbf{x}^{(TU)} \rvert \boldsymbol{\alpha}, \boldsymbol{\zeta}, N) &= \log \eta^{(D)} + \log \Gamma(\alpha_0) + \log \Gamma(N + 1) - \log \Gamma(N + \alpha_0) \\
+                &\quad+ \sum_{d=1}^D \log  \Gamma(x^{(TU)}_d + \alpha_d) - \log \Gamma(\alpha_d) - \log \Gamma(x^{(TU)}_d + 1).
             \end{split}
+        $$
 
-        with `:math: \boldsymbol{\alpha} = [\alpha_1, \dots, \alpha_d]^T` being the concentration parameter of the
-        Dirichlet-Multinomial distribution, and `:math: \boldsymbol{\zeta} = [\zeta_1, \dots, \zeta_d]^T` the
-        excess-of-zeros probabilities. Both need to satisfy `:math: \alpha_j > 0` and `:math: 0 \leq \zeta_j \leq 1` and
-        the sum of the concentration is represented by `:math: \hat{\alpha} = \sum_{j=1}^d \alpha_j`. The number of
-        trials is given by `:math: N = \sum_{j=1}^d x^{(g)}_j`. All mixing weight parameters `:math: \boldsymbol{\eta}
-        = [\eta_d, \eta_0, \eta_N^{(1)}, \dots, \eta_N^{(d)}, \boldsymbol{\eta}_{\tilde{\mathcal{K}}} ]^T` are functions
-        of the excess-of-zeros with `:math: \eta_d = \prod_{j=1}^d (1 - \zeta_j)`, `:math: \eta_0 = \prod_{j=1}^d \zeta_j`,
-        `:math: \eta_N^{(j)} = (1 - \zeta_j) \prod_{k:k\neq j} \zeta_k`, and `:math: \eta_{\mathcal{K}} =
-        \prod_{k \in \mathcal{K}} \zeta_k \prod_{j \notin \mathcal{K}} (1 - \zeta_j)`. The set of all subsets of
-        zero-inflated categories is given by `:math: \tilde{\mathcal{K}} = \{\mathcal{K} \subseteq \{1, \dots, d \};
-        1 \leq |\mathcal{K}| \leq d - 2 \}`. The sum of reduced concentration is defined as `:math:
-        \hat{\alpha}_{\mathcal{K}} = \sum_{j \notin \mathcal{K}} \alpha_j` and the indicator function as `:math:
-        \mathbf{1}_0(x^{(g)}_j) = \begin{cases} 1  && \forall x^{(g)}_j=0 \\ 0 && \forall x^{(g)}_j > 0\end{cases}`.
-        There are special cases for the probability mass function. For `:math: \mathbf{x}^{(g)} = \mathbf{0}` the
-        probability mass function reduces to
+        For case 2 ($N = 0 \land \mathbf{x}^{(TU)} = \mathbf{0}$), the  log-likelihood is simply obtained form the mixture weight as
 
-        ..math::
-            \mathrm{ZANIDM}(\mathbf{x}^{(g)} = \mathbf{0}; \boldsymbol{\alpha}, \boldsymbol{\zeta}) = \eta_0
+        $$
+            \log  \mathrm{ZANIDM}(\mathbf{x}^{(TU)} \rvert \boldsymbol{\alpha}, \boldsymbol{\zeta}, N) = \log \eta^{(0)}.
+        $$
 
-        and for `:math: \forall j : x^{(g)}_j > 0` and `:math: N > )`, it reduces to the Dirichlet-Multinomial
-        distribution
+        For case 3 ($N > 0 $ and $D-1$ zero-inflated intron counts), the set of zero-inflated subsets $\tilde{\mathcal{K}} = \{ \}$ is empty by definition. The log-likelihood is of case 3 then results in
 
-        ..math::
-            \mathrm{ZANIDM}(\mathbf{x}^{(g)}; \boldsymbol{\alpha}, \boldsymbol{\zeta}) = \eta_d \frac{\Gamma(\hat{\alpha})
-            \Gamma(N + 1)}{\Gamma(N + \hat{\alpha})} \prod_{j=1}^d
-            \frac{\Gamma(x^{(g)}_j + \alpha_j)}{\Gamma(\alpha_j) \Gamma(x^{(g)}_j + 1)}.
-
-        If `:math: d=2` and `:math: N > 0`, the probability mass function simplifies to
-
-        ..math::
+        $$
             \begin{split}
-                \mathrm{Pr}(\mathbf{Y} = \mathbf{y}; \boldsymbol{\alpha}, \boldsymbol{\zeta}) &=
-                \eta_2 \frac{\Gamma(\hat{\alpha}) \Gamma(N + 1)}{\Gamma(N + \hat{\alpha})} \prod_{j=1}^2
-                \frac{\Gamma(y_j + \alpha_j)}{\Gamma(\alpha_j)\Gamma(y_j + 1)} \\
-                &+ \sum_{j=1}^2 \eta_N^{(j)} \left(\mathbf{1}_0 \left(\sum_{k:k \neq j} y_k \right) \right)
-            \end{split}
+                \log \mathrm{ZANIDM}(\mathbf{x}^{(TU)} \rvert \boldsymbol{\alpha}, \boldsymbol{\zeta}, \hat{N}) &= \log (\eta^{(D)} \frac{\Gamma(\alpha_{0}) \Gamma(N  + 1)}{\Gamma(N  + \alpha_{0})} \prod_{d=1}^{D} \frac{\Gamma \left(x_{d}^{(TU)} + \alpha_{d} \right)}{\Gamma(\alpha_{d})\Gamma \left( x_{d}^{(TU)} + 1 \right)} \\
+                &+ \sum_{d=1}^{D} \eta^{(N)}_{d} \left(\mathbf{1}_0 \left(\sum_{k:k \neq d} x_{k}^{(TU)} \right) \right)) \end{split}.
+        $$
+
+        For case 4 ($N > 0$ and at most $ D - 2$ zero-inflated intron counts), the  log-likelihood is then given by
+
+        $$
+            \begin{split}
+                \log \mathrm{ZANIDM}(\mathbf{x}^{(g,i)} \rvert \boldsymbol{\alpha}, \boldsymbol{\zeta}, \hat{N}) &= \log (\eta^{(D)} \frac{\Gamma(\alpha_{0}) \Gamma(N  + 1)}{\Gamma(N  + \alpha_{0})} \prod_{d=1}^{D} \frac{\Gamma \left(x_{d}^{(TU)} + \alpha_{d} \right)}{\Gamma(\alpha_{d})\Gamma \left( x_{d}^{(TU)} + 1 \right)} \\
+                &+ \sum_{\mathcal{K} \in \tilde{\mathcal{K}}} \eta^{(\tilde{\mathcal{K}})}_{\mathcal{K}} \left( \mathbf{1}_0 \left( \sum_{j \in \mathcal{K}} x_{j}^{(TU)} \right) \right) \\ & \quad \quad \frac{\Gamma(\alpha_{\mathcal{K}}) \Gamma( N+ 1)}{\Gamma \left(N + \alpha_{\mathcal{K}} \right)} \prod_{d \notin \mathcal{K}} \frac{\Gamma \left(x_{d}^{(TU)} + \alpha_{d} \right)}{\Gamma (\alpha_{d}) \Gamma \left( x_{d}^{(TU)} + 1 \right)})
+            \end{split}.
+        $$
+
 
         The function returns the log-likelihood as a torch.Tensor.
 
@@ -2190,7 +2507,51 @@ class ZANIDMTranscriptUsageVAE(BetaVAE):
     def generative_model(self, latent_variable: torch.Tensor, x: torch.Tensor | None) -> Dict[str, torch.Tensor]:
         r"""
         Given the latent variable (torch.Tensor) and the count data point (torch.Tensor), compute the parameters of the
-        generative model.
+        generative model using the ZANIDM observation model. The parameters of the ZANIDM include the concentration
+        computed from the exon-junction (intron) proportion, and the mixture weights computed from the excess-of-zeros
+        probabilities. The mixture weights
+        $\boldsymbol{\eta} = [\eta^{(D)}, \eta^{(0)}, \eta^{(N)}_{1}, \dots, \eta^{(N)}_{D}, \boldsymbol{\eta}^{(\tilde{\mathcal{K}})} ]^T$
+        of ZANIDM are functions of the excess-of-zero parameters. A mixture weight quantifies the relative importance of
+        a specific event scenario. Four different event scenarios can be defined for the ZANIDM. In case 1, all $D$ exon
+        junctions have counts greater than zero ($N > 0 \, \land \forall d \, x^{(TU)}_{d} > 0$) which is covered by
+        the mixture weight
+
+        $$
+            \eta^{(D)} = \prod_{d=1}^{D} (1 - \zeta_{d}).
+        $$
+
+        The opposite scenario is the event the event in which no exon-junction counts are observed
+        ($N = 0$ and $\mathbf{x}^{(TU)} = \mathbf{0}$) constituting case 2 which has the mixture weight
+
+        $$
+            \eta^{(0)}= \prod_{d=1}^{D} \zeta_{d}.
+        $$
+
+        If $D - 1$ exon junctions are zero-inflated and $N > 0$, one exon junction will be $N$-inflated (case 3). This
+        event scenario is weighted by
+
+        $$
+            \eta^{(N)}_{d} = (1 - \zeta_{d}) \prod_{k:k\neq d} \zeta_{k}.
+        $$
+
+        All other events are instances of the case where $N > 0$ and at most $D - 2$ exon junctions are zero-inflated
+        (case 4). Therefore,
+        $\tilde{\mathcal{K}} = \{\mathcal{K} \subseteq \{1, \dots, D \}; 1 \leq |\mathcal{K}| \leq D - 2 \}$ is the set
+        of all subsets $\mathcal{K}$ of $\{1, \dots, D \}$ with cardinality $|\mathcal{K}| \in \{1, \dots, D - 2 \}$
+        where a subset $\mathcal{K}$ gathers all exon junctions with zero counts excluding the cases where exactly $D$
+        and $D - 1$ exon junctions are zero-inflated. The mixture weight for a subset
+        $\mathcal{K} \in \tilde{\mathcal{K}}$ is then obtained by
+
+        $$
+            \eta^{(\tilde{\mathcal{K}})}_{\mathcal{K}} = \prod_{k \in \mathcal{K}} \zeta_{k} \prod_{d \notin \mathcal{K}} (1 - \zeta_{d})
+        $$
+
+        such that all mixture weights of these subsets are given by the vector
+        $\boldsymbol{\eta}^{(\tilde{\mathcal{K}})}  = \{\eta^{(\tilde{\mathcal{K}})}_{\mathcal{K}}; \mathcal{K} \in \tilde{\mathcal{K}} \}$.
+        As additional constraint for each subset $\mathcal{K}$, a truncated sum of concentration parameters is defined
+        by $\alpha_{\mathcal{K}} = \sum_{d \notin \mathcal{K}} \alpha_{d}$.
+
+        A dictionary containing all entities necessary to compute the generative model is returned.
 
         :param latent_variable: (torch.Tensor) The latent variable. Shape is (batch size, latent dim).
         :param x: (torch.Tensor) The count data point(s). Shape is (batch size, D) with D being the feature dimension.
@@ -2391,10 +2752,11 @@ class ZANIDMTranscriptUsageVAE(BetaVAE):
 
 class TRVI(nn.Module):
     r"""
-    Implementaiton of a single-cell gene expression and transcript usage bi-modal mixture of experts vartiational
-    autoencoder (MoEVAE). The implementaation of the MoEVAE is based on the MMVAEplus from Palumbo et al. 2023. The VAEs
-    used internally are similar to those proposed in scVI and scQuint. The model is designed to handle single-cell
-    RNA-seq data with gene expression and transcript usage modalities.
+    Transcriptomic Regulation Variational Inference (TRVI) consolidates gene expression and alternative splicing-induced
+    transcript usage data by learning modality-specific (P-GE, P-TU), and joint cell embeddings (GE-TU with S-GE and
+    S-TU). The joint cell embeddings are modelled via a modality-relevance weighted mixture-of-experts variational
+    posterior where the modality-relevance weight (for gene expression and transcript usage) are learned from the
+    single-cell profiles and indicate the modality's contribution to the joint representation.
     """
     def __init__(
             self,
@@ -2412,6 +2774,31 @@ class TRVI(nn.Module):
             dropout_rate: float = 0.1,
             device: str = "cuda",
     ) -> None:
+        r"""
+        This is the class of Transcriptomic Regulation Variational Inference (TRVI). TRVI is a multimodal variational
+        autoencoder that jointly learns cell embeddings from single-cell gene expression (GE) and alternative
+        splicing-induced transcript usage (TU) profiles. TRVI combines shared and modality-specific latent
+        representations with a cell-specific, modality-relevance-weighted mixture-of-experts
+        variational posterior.
+
+        :param input_dim: (List[int]) Input dimensions in the order [number of genes, number of introns].
+        :param num_intron_groups: (int) Number of transcript usage intron groups.
+        :param intron_groups: (np.ndarray) Zero-based intron-group index for each transcript usage feature.
+        :param latent_dim: (List[int]) Latent dimensions in the order [gene expression private, transcript usage private,
+            shared]. Each unimodal encoder outputs the shared coordinates followed by its private coordinates.
+        :param beta: (List[float]) KL weights in the order [gene expression, transcript usage].
+        :param num_hidden_layers: (List[int]) Numbers of hidden layers for gene expression and transcript usage.
+        :param num_hidden_units: (List[int]) Hidden layer widths for gene expression and transcript usage.
+        :param likelihoods: (List[str]) Observation models in modality order. Gene expression supports "Gaussian", "NB",
+            or "ZINB"; transcript usage supports "DM", "ZIDM", or "ZANIDM".
+        :param scaling_factor: (List[bool]) Scaling options passed to the two unimodal VAEs. The joint forward path
+            currently passes no scale factors to the decoders; use [False, False] for that path.
+        :param temp: (float) Stored temperature setting. Default is 0.1. The current mixture weights use ordinary softmax.
+        :param learn_modality_weighting: (bool) Whether to construct the modality-weighting encoder. Default is True.
+        :param dropout_rate: (float) Dropout probability for the networks. Default is 0.1.
+        :param device: (str) Device setting passed to the unimodal models. Default is "cuda".
+            Move the module and input tensors to the same device before use.
+        """
         super(TRVI, self).__init__()
 
         self.latent_dim = latent_dim
@@ -2526,16 +2913,17 @@ class TRVI(nn.Module):
     ) -> torch.Tensor:
         r"""
         The implemented Gaussian log-likelihood function is derived from the multivariate Gaussian distribution
-        :math:`\mathcal{N}(\mathbf{x} \rvert \boldsymbol{\mu}, \boldsymbol{\sigma}^2 \odot \mathbf{I})` with a mean
-        vector :math:`\boldsymbol{\mu} \in \mathbb{R}^D` and diagonal covariance matrix :math:`\boldsymbol{\sigma}^2
-        \odot \mathbf{I} \in \mathbb{R}_+^{N \times N}`. The log-likelihood function is evaluated using the given data
+        $\mathcal{N}(\mathbf{x} \rvert \boldsymbol{\mu}, \boldsymbol{\sigma}^2 \odot \mathbf{I})$ with a mean
+        vector $\boldsymbol{\mu} \in \mathbb{R}^D$ and diagonal covariance matrix $\boldsymbol{\sigma}^2
+        \odot \mathbf{I} \in \mathbb{R}_+^{N \times N}$. The log-likelihood function is evaluated using the given data
         point x (torch.Tensor) as well as the torch.Tensors corresponding to the keys "Mean" and the "Variance" of the
         dictionary parameter_model. The Gaussian log-likelihood is then computed according to
 
-        ..math::
+        $$
             \mathrm{log} \, \mathcal{N}(\mathbf{x} \rvert \boldsymbol{\mu}, \boldsymbol{\sigma}^2 \odot \mathbf{I}) =
             -\frac{D}{2} \mathrm{log}(2 \pi) -\frac{1}{2}\sum_{d=1}^D \mathrm{log}(\sigma_d^2)
             - \frac{1}{2} \sum_{d=1}^D \frac{(x_d - \mu_d)^2}{\sigma_d^2}
+        $$
 
         :param x: (torch.Tensor) The data point(s). Shape is be (batch size, D) with D being the feature dimension.
         :param parameter_dict: (Dict[str, torch.Tensor) Dictionary of the predicted parameters of the variational posterior.
@@ -2570,6 +2958,36 @@ class TRVI(nn.Module):
             eps: Tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None] | None, # eps[0] gene levels, eps[1] transcript usage levels, eps[2] for auxiliary prior of gene levels, eps[3] for auxiliary prior of transcript usage levels
             temp: float = 0.5
     ) -> Dict[str, Dict[str, torch.Tensor]]:
+        r"""
+        The full variational posterior of TRVI is computed from the gene expression and transcript usage levels. If a
+        noise variable (eps) is supplied, the reparameterization trick during training is applied. For a data point
+        $\mathbf{x}_n = \{\mathbf{x}_n^{(GE)},\mathbf{x}_n^{(TU)} \}$ the full variational posterior is obtained by
+
+        $$
+            q_{\boldsymbol{\Phi}} \left( \mathbf{z}_n, \{\mathbf{w}_n^{(m)}\}_{m\in\mathcal M} \mid\mathbf{x}_n \right) &= \left( \sum_{m\in\mathcal M} \pi_{\boldsymbol{\phi}^{\pi}}^{(m)}(\mathbf{x}_n)\, q_{\boldsymbol{\phi}^{\mathbf z}_m} \left( \mathbf{z}_n\mid\mathbf{x}_n^{(m)} \right) \right) \\
+            &\quad \prod_{m\in\mathcal M} q_{\boldsymbol{\phi}^{\mathbf w}_m} \left( \mathbf{w}_n^{(m)} \mid\mathbf{x}_n^{(m)} \right)
+        $$
+
+        where
+        $\boldsymbol{\Phi} = \{\boldsymbol{\phi}^{\pi}, {\boldsymbol{\phi}^{\mathbf z}_m, \boldsymbol{\phi}^{\mathbf w}_m} \mid {m\in\mathcal{M}}\}$
+        denotes the set of all variational parameters.
+
+        All entities necessary to compute the variational posterior are returned as dictionary
+        variational_posterior_dict.
+
+        :param x: (Tuple[torch.Tensor | None, torch.Tensor | None]) Gene expression levels and transcript usage levels,
+            each with shape (batch size, modality input dim). A missing modality can be supplied as None.
+        :param eps: (Tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]) Four noise entries for the
+            gene expression posterior, transcript usage posterior, gene expression auxiliary distribution, and transcript
+            usage auxiliary distribution. Posterior noise has final dimension shared dim plus private dim; auxiliary
+            noise has the corresponding private dimension. An optional leading sample dimension is supported here.
+            Individual entries may be None to omit sampling, but the tuple itself is required by the implementation.
+        :param temp: (float) Retained temperature argument, currently unused because weights use ordinary softmax.
+        :return: variational_posterior_dict (Dict[str, Dict[str, torch.Tensor]]) Nested dictionaries under "Modality 1",
+            "Modality 2", and "Mixture of experts". Modality entries contain available shared/private moments, samples,
+            auxiliary samples, and optional scale factors. Mixture moments and weights are included only when both
+            modalities are present; equal weights are stored as scalar floats.
+        """
 
         # Extract gene expression levels and transcript usage levels
         x_1_levels, x_2_levels = x
@@ -2690,6 +3108,62 @@ class TRVI(nn.Module):
             scales: Tuple[torch.Tensor | None, torch.Tensor | None], # Scaling factors
             x_2_counts: torch.Tensor | None
     ) -> Dict[str, torch.Tensor]:
+        r"""
+        Given the share latent cell embeddings (GE-TU with S-GE and S-TU), modality-specific cell embeddings (P-GE,
+        P-TU), auxiliary latent variables $\tilde{\mathbf{w}}_n^{(m')} \sim r_{m'} (\cdot)$, scales, and isoform group
+        count vector $\mathbf{x}^{TU}$, generative model of TRVI is computed by
+
+        $$
+            p_{\boldsymbol{\Theta}} \left(\mathbf{X}, \mathbf{Z}, \{\mathbf{W}^{(m)}\}_{m\in\mathcal M} \right) = \prod_{n=1}^{N} p(\mathbf{z}_n) \prod_{m\in\mathcal M} p_{\boldsymbol{\theta}_m} \left( \mathbf{x}_n^{(m)} \mid \mathbf{z}_n,\mathbf{w}_n^{(m)} \right) p(\mathbf{w}_n^{(m)}).
+        $$
+
+        where $p(\mathbf{z}_n) = \mathcal{N}(\mathbf{z}_n \mid \mathbf{0}, \mathbf{I}_L)$, $p(\mathbf{w}_n^{(m)}) = \mathcal{N}(\mathbf{w}_n \mid \mathbf{0}, \mathbf{I}_L)$
+        are the respective priors on the latent cell embeddings and
+        $p_{\boldsymbol{\theta}_m} \left( \mathbf{x}_n^{(m)} \mid \mathbf{z}_n,\mathbf{w}_n^{(m)} \right)$  the data
+        likelihood for modality $m$ with $\boldsymbol{\theta}_m$ being the parameters of the deep neural network of the
+        respective modality decoder. The set of all parameters of the generative model is denoted by
+        $\boldsymbol{\Theta} = \{\boldsymbol{\theta}_{GE}, \boldsymbol{\theta}_{TU} \}$ For gene expression $m= GE$, the
+         data likelihood factorises across $G_{\mathrm{GE}}$ genes as
+
+        $$
+            p_{\boldsymbol{\theta}_{GE}} \left( \mathbf{x}_n^{(GE)} \mid \mathbf{z}_n, \mathbf{w}_n^{(GE)} \right) = \prod_{g = 1}^{G_{GE}} p_{\boldsymbol{\theta}_{GE}}(x^{(GE)}_{n,g} \mid \mathbf{z}_n, \mathbf{w}_n^{(GE)}).
+        $$
+
+        Here, $p_{\boldsymbol{\theta}_{GE}}(x^{(GE)}_{n,g} \mid \mathbf{z}_n, \mathbf{w}_n^{(GE)})$ is the observation
+        model of a gene expression $x^{(GE)}_{n,g}$ in cell $n$ similar to scVI. TRVI supports Gaussian,
+        negative-binomial (NB), and zero-inflated negative-binomial (ZINB) observation models. All TRVI analyses
+        reported here used the ZINB observation model. For transcript usage data $m= TU$, the data likelihood across
+        spliced genes and their isoform groups
+
+        $$
+            p_{\boldsymbol{\theta}_{TU}} \left( \mathbf{x}^{(TU)}_n \rvert \mathbf{z}_n, \mathbf{w}_n^{(TU)}\right) = \prod_{g=1}^{G_{TU}} \prod_{i=1}^{I_g} p_{\boldsymbol{\theta}_{TU}} \left(\mathbf{x}_{n,g,i}^{(TU)} \rvert \mathbf{z}_n, \mathbf{w}_n^{(TU)}\right)
+        $$
+
+        where
+        $p_{\boldsymbol{\theta}_{TU}} \left(\mathbf{x}_{n,g,i}^{(TU)} \rvert \mathbf{z}_n, \mathbf{w}_n^{(TU)}\right)$
+        is the observation model of an isoform group vector $\mathbf{x}_{n,g,i}^{(TU)}$. TRVI supports the same
+        transcript usage observation models as tuVI (DM, ZANIDM) and the heuristic ZIDM. All TRVI analyses reported used
+        the heuristic ZIDM objective.
+
+        All entities necessary to compute the generative model are stored in the dictionary generative_model_dict.
+        Unimodal generation concatenates a modality's shared and private samples. Cross-modal generation combines the
+        other modality's shared sample with an auxiliary private sample for the target modality.
+
+        :param shared_latent_variables: (Tuple[torch.Tensor | None, torch.Tensor | None]) Shared samples from the gene
+            expression and transcript usage encoders, respectively.
+        :param private_latent_variables: (Tuple[torch.Tensor | None, torch.Tensor | None]) Private samples from the two
+            encoders in the same modality order. A unimodal branch requires both its shared and private samples.
+        :param auxiliary_latent_variables: (Tuple[torch.Tensor | None, torch.Tensor | None]) Auxiliary private samples
+            for gene expression and transcript usage. Each non-None entry requires the other modality's shared sample.
+        :param scales: (Tuple[torch.Tensor | None, torch.Tensor | None]) Optional modality scales. Only the first entry
+            is passed to unimodal gene expression generation; cross-modal gene expression receives None, and the second
+            entry is unused. Scaling must be disabled for gene expression cross-modal generation.
+        :param x_2_counts: (torch.Tensor | None) Observed intron counts with shape (batch size, number of introns),
+            required by transcript usage generation to compute group totals and count-dependent parameters.
+        :return: generative_model_dict (dict) Nested parameter dictionaries for the available branches, keyed by
+            "Modality 1 unimodal", "Modality 2 unimodal", "Modality 1 crossmodal", and "Modality 2 crossmodal".
+            Individual parameter dictionaries follow the selected unimodal VAE observation model.
+        """
 
         # Create dictionary to store the generative model
         generative_model_dict = {}
@@ -2737,7 +3211,7 @@ class TRVI(nn.Module):
             \mathbb{E}_{\begin{matrix} \mathbf{z} \sim q_{\boldsymbol{\phi}^{\mathbf{z}}_m}(\mathbf{z} \rvert
             \mathbf{x}_m) \end{matrix}} \left[\log \frac{p(\mathbf{z})}{\sum_{k=1}^2 \pi_k(\mathbf{x}_k)
             q_{\boldsymbol{\phi}_k^{\mathbf{z}}}(\mathbf{z} \rvert \mathbf{x}_k)} \right]
-        raise NotImplementedError("Pseudo Kullback-Leibler divergence is not implemented yet.")
+
         """
         # Check the modality is either 1 or 2
         if modality not in [1, 2]:
@@ -2795,6 +3269,36 @@ class TRVI(nn.Module):
             variational_posterior_dict: Dict[str, Dict[str, torch.Tensor]],
             modality: int
     ) -> torch.Tensor:
+        r"""
+        Give the variational_posterior_dict, the modality-relevance weighted mixture-of-experts variational posterior is
+        computed. TRVI uses a cell-specific modality-relevance-weighted mixture-of-experts variational posterior for the
+        joint GE--TU cell embeddings. TRVI infers the relative contribution of each modality separately for each cell
+        through the modality-relevance weight $\pi_{\boldsymbol{\phi}^{\pi}}^{(m)}(\mathbf{x}_n)$. The log-likelihood of
+        the modality-relevance-weighted variational posterior of a GE--TU cell embedding is then obtained by
+
+        $$
+            \log q_{\boldsymbol{\Phi}} \left( \mathbf{z}_n,  \mid\mathbf{x}_n \right) = \log \sum_{m\in\mathcal M} \pi_{\boldsymbol{\phi}^{\pi}}^{(m)}(\mathbf{x}_n)\, q_{\boldsymbol{\phi}^{\mathbf z}_m} \left( \mathbf{z}_n\mid\mathbf{x}_n^{(m)} \right).
+        $$
+
+        For $\mathcal{M}={\mathrm{GE},\mathrm{TU}})$,  defines a two-component Gaussian mixture. The GE-derived and
+        TU-derived components constitute the shared gene expression (S--GE) and shared transcript usage (S--TU)
+        posterior components
+        $q_{\boldsymbol{\phi}^{\mathbf z}_m} ( \mathbf{z}_n\mid\mathbf{x}_n^{(m)} ) = \mathcal{N}(\mathbf{z}_n \mid \boldsymbol{\mu}_{\boldsymbol{\phi}^{\mathbf z}_m}(\mathbf{x}_n^{(m)}), \mathrm{diag}(\boldsymbol{\sigma^2}_{\boldsymbol{\phi}^{\mathbf z}_m})(\mathbf{x}_n^{(m)})))$,
+        respectively. The modality-relevance weight is constrained by
+        $\pi_{\boldsymbol{\phi}^{\pi}}^{(m)}(\mathbf{x}_n) \geq 0$ and
+        $\sum_{m \in \mathcal{M}} \pi_{\boldsymbol{\phi}^{\pi}}^{(m)}(\mathbf{x}_n) = 1$.
+
+        The function returns the log-likelihood of the shared mixture-of-experts variational posterior at samples from
+        the selected modality. Both Gaussian component densities are evaluated at the same samples and combined with
+        their mixture weights using log-sum-exp for numerical stability. Equal weights are used when learned modality
+        weighting is disabled.
+
+        :param variational_posterior_dict: (Dict[str, Dict[str, torch.Tensor]]) Posterior dictionary containing both
+            modalities' shared means and variances, the selected shared sample, and any learned mixture weights.
+        :param modality: (int) Source of the shared sample: 1 for gene expression or 2 for transcript usage.
+        :return: mixture_of_experts_log_likelihood (torch.Tensor) Mixture log density summed over shared latent
+            coordinates, with shape (batch size,) or (number of samples, batch size).
+        """
 
         # Check the modality is either 1 or 2
         if modality not in [1, 2]:
@@ -2881,16 +3385,15 @@ class TRVI(nn.Module):
         r"""
         Given a batch of inputs consisting of two torch.Tensors of gene expression data x_1_counts and x_1_levels as
         well as two torch.Tensors of transcript usage data x_2_counts and x_2_levels, the forward pass computes the
-        evidence lower bound (ELBO) for the bi-modal mixture of experts variational autoencoder (MoEVAE). The full ELBO
-        is an average of the ELBO for the first data modality (i.e. gene expressions) and the second data modality (i.e.
-        transcript usage). Since optimisation takes place here through minimisation, the negative ELBO will be computed.
-        The negative ELBO for a data modality is then built up by the negative log-likelihoods (NLLs) for uni-modal and
-        cross-modal generation and the Kullback-Leibler divergences (KLDs) between the mixture of experts variational
-        posterior on the shared latent variable and the prior on the shared latent variable as well as the private
-        variational posterior on the private latent variable  and the prior on the private latent variable. The
-        negative ELBO for an input data point is then yielded by
+        evidence lower bound (ELBO) for TRVI. The full ELBO is an average of the ELBO for the first data modality (i.e.
+        gene expressions) and the second data modality (i.e.transcript usage). Since optimization takes place here
+        through minimization, the negative ELBO will be computed. The negative ELBO for a data modality is then built
+        up by the negative log-likelihoods (NLLs) for uni-modal and cross-modal generation and the Kullback-Leibler
+        divergences (KLDs) between the mixture of experts variational posterior on the shared latent variable and the
+        prior on the shared latent variable as well as the private variational posterior on the private latent variable
+        and the prior on the private latent variable. The negative ELBO for an input data point is then yielded by
 
-        ..math::
+        $$
             \mathcal{L}(\boldsymbol{\Phi}, \boldsymbol{\Theta}; \mathbf{x}) &\geq \sum_{m=1}^2 \pi_m(\mathbf{x}_m) (\mathbb{E}_{\begin{matrix}
             \mathbf{z} \sim q_{\boldsymbol{\phi^{\mathbf{z}}_m}}(\mathbf{z} \rvert \mathbf{x}_m) \\
             \mathbf{w}_m \sim q_{\boldsymbol{\phi}^{\mathbf{w}}_m}(\mathbf{w}_m \rvert \mathbf{x}_m)
@@ -2903,25 +3406,34 @@ class TRVI(nn.Module):
             &\quad+ \mathbb{E}_{\begin{matrix}
             \mathbf{z} \sim q_{\boldsymbol{\phi}^{\mathbf{z}}_m}(\mathbf{z} \rvert \mathbf{x}_m)
             \end{matrix}} \left[\log \frac{p(\mathbf{z})}{\sum_{k=1}^2 \pi_k(\mathbf{x}_k) q_{\boldsymbol{\phi}_k^{\mathbf{z}}}(\mathbf{z} \rvert \mathbf{x}_k)} \right] )
+        $$
 
-        where :math:`\mathbf{x} = \{\mathbf{x}_1, \mathbf{x}_2\}` is the input data consisting of the gene expression
-        data :math:`\mathbf{x}_1` and the transcript usage data :math:`\mathbf{x}_2`, :math:`\mathbf{z}` is the shared
-        latent variable, :math:`\mathbf{w}_1` is the private latent variable for the gene expression modality, and
-        :math:`\mathbf{w}_2` is the private latent variable for the transcript usage modality. The priors on the latent
-        variables are assumed to be standard Gaussian distributions, i.e. :math:`p(\mathbf{z}) = \mathcal{N}(0, I)` and
-        :math:`p(\mathbf{w}_1) = \mathcal{N}(0, I)` and :math:`p(\mathbf{w}_2) = \mathcal{N}(0, I)`.
-        The function returns the negative ELBO, the KLDs, and the NLLs for both modalities.
+        where $\mathbf{x} = \{\mathbf{x}_1, \mathbf{x}_2\}$ is the input data consisting of the gene expression
+        data $\mathbf{x}_1$ and the transcript usage data $\mathbf{x}_2$, $\mathbf{z}$ is the shared
+        latent variable, $\mathbf{w}_1$ is the private latent variable for the gene expression modality, and
+        $\mathbf{w}_2$ is the private latent variable for the transcript usage modality. The priors on the latent
+        variables are assumed to be standard Gaussian distributions, i.e. $p(\mathbf{z}) = \mathcal{N}(0, I)$ and
+        $p(\mathbf{w}_1) = \mathcal{N}(0, I)$ and $p(\mathbf{w}_2) = \mathcal{N}(0, I)$.
+        The function returns the negative ELBO, the KLDs, and the NLLs for both modalities. The current implementation
+        combines Monte Carlo importance weights with log-sum-exp over the leading sample dimension and adds
+        modality-weight regularization when enabled.
 
         :param x: (Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) A tuple containing the gene expression
             counts (x_1_counts), gene expression levels (x_1_levels), transcript usage counts (x_2_counts), and
             transcript usage levels (x_2_levels).
-        :param eps: (Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) A tuple
-            containing the random noise tensors for the gene expression and transcript usage modalities. Each tensor in
-            the tuple corresponds to the latent variables and is used to sample from the variational posterior.
-        :param beta_kl_warmup: (List[float]) A list containing the KL warm-up factors for the two modalities.
-        :param temp: (float) Temperature parameter for modality weight regularization.
-        :return: elbo (torch.Tensor), kld (torch.Tensor), nll (torch.Tensor)
-
+        :param eps: (Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) Noise for the gene expression
+            posterior, transcript usage posterior, gene expression auxiliary distribution, and transcript usage auxiliary
+            distribution, in that order. Use shape (number of samples, batch size, shared dim + private dim) for posterior
+            noise and (number of samples, batch size, private dim) for the corresponding auxiliary noise. Decoder support
+            for a leading sample dimension depends on the selected observation model.
+        :param beta_kl_warmup: (List[float]) KL weights assigned to the two VAEs. If either is below 1, learned weighting
+            and its regularization are disabled. Otherwise they are enabled, requiring a constructed weighting encoder.
+            Passing None leaves the current settings unchanged.
+        :param temp: (float) Coefficient assigned to both modality-weight regularizers after KL warm-up. Default is 500.
+        :return: (Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor])
+            Combined negative objective, gene expression negative objective, transcript usage negative objective,
+            gene expression NLL, transcript usage NLL, gene expression pseudo-KL, and transcript usage pseudo-KL,
+            in that order. Objectives and pseudo-KL terms reduce the leading sample dimension; NLL terms retain it.
         """
         if beta_kl_warmup is not None:
             self.vae_1.beta = beta_kl_warmup[0]
@@ -3084,12 +3596,23 @@ class TRVI(nn.Module):
 
 
 class LogisticRegressionClassifier(nn.Module):
+    r"""
+        Linear classifier mapping feature vectors to unnormalized class logits.
+    """
     def __init__(
             self,
             input_dim: int,
             num_classes: int,
             device: str
     ) -> None:
+        r"""
+        Initialize a linear classifier that maps feature vectors to class logits. The output is suitable for a
+        classification loss that accepts logits; the classifier does not apply softmax.
+
+        :param input_dim: (int) Number of input features.
+        :param num_classes: (int) Number of output classes.
+        :param device: (str) Device setting stored on the classifier. Move the module to this device explicitly.
+        """
         super(LogisticRegressionClassifier, self).__init__()
 
         self.linear_layer = nn.Linear(input_dim, num_classes)
@@ -3097,7 +3620,10 @@ class LogisticRegressionClassifier(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         r"""
-        Takes a batch of feature vector (torch.Tensor) as an input and maps them through a linear layer to compute the logits
+        Map input feature vectors through the linear layer to compute unnormalized class logits.
+
+        :param x: (torch.Tensor) Input feature vectors with final dimension input_dim, typically (batch size, input_dim).
+        :return: logits (torch.Tensor) Class logits with the same leading dimensions and final dimension num_classes.
         """
 
         logits = self.linear_layer(x)
