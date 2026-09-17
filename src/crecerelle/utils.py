@@ -38,10 +38,10 @@ def add_gene_annotation(
         filter_unique_gene: bool =True
 ) -> AnnData:
     r"""
-    Legacy function of scQuint. Given an AnnData object containing the splicing data (exon junction reads mapped to
-    introns and intron groups) and a gtf file containing the gene annotation, add the gene annotation to the AnnData
-    object. If filter_unique_gene is True, only unique gene correspondences are considered. The AnnData object is
-    returned.
+    Legacy function of scQuint (https://github.com/songlab-cal/scquint/tree/main). Given an AnnData object containing
+    the splicing data (exon junction reads mapped to introns and intron groups) and a gtf file containing the gene
+    annotation, add the gene annotation to the AnnData object. If filter_unique_gene is True, only unique gene
+    correspondences are considered. The AnnData object is returned.
 
     :param adata: AnnData object
     :param gtf_path: str
@@ -110,6 +110,12 @@ def add_gene_annotation(
     )
 
     def fill_na_with_empty_array(val):
+        r"""
+        Return an existing NumPy array or an empty array for a missing boundary annotation.
+
+        :param val: (object) Exon-boundary annotation value.
+        :return: (np.ndarray) Original array or an empty array.
+        """
         return val if isinstance(val, np.ndarray) else np.array([])
 
     adata.var.gene_id_start = adata.var.gene_id_start.apply(fill_na_with_empty_array)
@@ -149,10 +155,10 @@ def group_introns(
         filter_unique_gene_per_group: bool = True
 ) -> AnnData:
     r"""
-    Legacy function of scQuint. Group the introns and their exon junction reads into intron groups. The options are to
-    group introns by "three_prime", "five_prime", or "gene". The default is by "three_prime. If
-    filter_unique_gene_per_group is true, only intron groups that are associated with 1 and only 1 gene are kept. The
-    function returns the AnnData object with the introns grouped into intron groups.
+    Adopted from scQuint processing (https://github.com/songlab-cal/scquint/tree/main). Group the introns and their exon
+    junction reads into intron groups. The options are to group introns by "three_prime", "five_prime", or "gene". The
+    default is by "three_prime. If filter_unique_gene_per_group is true, only intron groups that are associated with 1
+    and only 1 gene are kept. The function returns the AnnData object with the introns grouped into intron groups.
 
     :param adata: AnnData
     :param by: str
@@ -205,6 +211,10 @@ def group_introns(
 
 def relabel(labels):
     r"""
+    Map labels to consecutive zero-based integers in order of first appearance. Repeated labels receive the same integer.
+
+    :param labels: (array-like) One-dimensional sequence of hashable, non-missing labels.
+    :return: (np.ndarray) Integer labels with the same length and order as the input.
     """
     all_old_labels = pd.unique(labels).tolist()
     mapping = {c: i for i, c in enumerate(all_old_labels)}
@@ -213,7 +223,16 @@ def relabel(labels):
     return new_labels
 
 def filter_min_cells_per_feature(adata, min_cells_per_feature, idx_cells_to_count=slice(None)):
-    # from scquint_data.py
+    r"""
+    Adopted from scQuint processing (https://github.com/songlab-cal/scquint/tree/main). Retain introns detected in at
+    least the specified number of selected cells, then remove singleton intron groups. Filtering is applied to features;
+    all original cells remain in the returned AnnData subset.
+
+    :param adata: (AnnData) Sparse count matrix in X and intron-group labels in var["intron_group"].
+    :param min_cells_per_feature: (int) Minimum number of selected cells with a strictly positive feature count.
+    :param idx_cells_to_count: (slice or array-like) Cell selection used to count detections. Defaults to all cells.
+    :return: (AnnData) Feature-filtered subset with no singleton intron groups.
+    """
     print("filter_min_cells_per_feature")
     idx_features = np.where((adata.X[idx_cells_to_count] > 0).sum(axis=0).A1 >= min_cells_per_feature)[0]
     adata = adata[:, idx_features]
@@ -221,7 +240,16 @@ def filter_min_cells_per_feature(adata, min_cells_per_feature, idx_cells_to_coun
     return adata
 
 def filter_min_cells_per_intron_group(adata, min_cells_per_intron_group, idx_cells_to_count=slice(None)):
-    # from scquint_data.py
+    r"""
+    Adopted from scQuint processing (https://github.com/songlab-cal/scquint/tree/main). Retain intron groups with
+    positive total counts in at least the specified number of selected cells. All features of qualifying groups are
+    retained before singleton groups are removed.
+
+    :param adata: (AnnData) Sparse counts in X and group labels in var["intron_group"].
+    :param min_cells_per_intron_group: (int) Minimum number of selected cells detecting an intron group.
+    :param idx_cells_to_count: (slice or array-like) Cells used to count group detections; defaults to all cells.
+    :return: (AnnData) Feature-filtered subset retaining all original cells.
+    """
     print("filter_min_cells_per_intron_group")
     intron_groups = relabel(adata.var.intron_group.values)
     intron_group_summation = make_intron_group_summation_cpu(intron_groups)
@@ -233,7 +261,12 @@ def filter_min_cells_per_intron_group(adata, min_cells_per_intron_group, idx_cel
     return adata
 
 def filter_singletons(adata):
-    # from scquint_data.py
+    r"""
+    Remove features belonging to intron groups represented by only one feature.
+
+    :param adata: (AnnData) Data with group labels in var["intron_group"].
+    :return: (AnnData) Subset containing only groups with at least two remaining introns.
+    """
     print("filter_singletons")
     intron_group_counter = Counter(adata.var.intron_group.values)
     intron_group_counts = np.array([intron_group_counter[c] for c in adata.var.intron_group.values])
@@ -241,25 +274,14 @@ def filter_singletons(adata):
     adata = adata[:, idx_features]
     return adata
 
-def relabel(labels):
-    r"""
-    """
-    all_old_labels = pd.unique(labels).tolist()
-    mapping = {c: i for i, c in enumerate(all_old_labels)}
-    new_labels = np.array([mapping[l] for l in labels])
-
-    return new_labels
-
-
 def make_intron_group_summation_cpu(intron_groups: np.ndarray) -> scipy.sparse.csr_matrix:
     r"""
-    Given an array of intron groups, create a sparse matrix that sums the intron counts for each group.
-    The function first counts the number of unique intron groups and then creates a sparse matrix
-    where each row corresponds to an intron and each column corresponds to an intron group. The
-    values in the matrix are the counts of introns in each group.
-    :param intron_groups: Array of intron groups
-    :return: Sparse matrix of intron group summation
-    :rtype: scipy.sparse.csr_matrix
+    Adopted from scQuint processing (https://github.com/songlab-cal/scquint/tree/main). Construct a sparse membership
+    matrix for summing feature counts within intron groups. Each intron row contains one entry equal to 1 in its group
+    column. Multiplying a cell-by-intron count matrix by this matrix produces cell-by-group totals.
+
+    :param intron_groups: (np.ndarray) Non-empty array of contiguous zero-based group indices, one per intron.
+    :return: (scipy.sparse.csr_matrix) Membership matrix with shape (number of introns, number of groups).
     Example:
     >>> intron_groups = np.array([0, 1, 0, 2, 1])
     >>> intron_group_summation = make_intron_group_summation_cpu(intron_groups)
@@ -282,19 +304,18 @@ def make_intron_group_summation_cpu(intron_groups: np.ndarray) -> scipy.sparse.c
 
 def compute_psi(adata: AnnData) -> np.ndarray:
     r"""
-    Given an AnnData object, compute the PSI values for each cell and intron group. The PSI (percent-spliced-in) score
-    is calculated via
+    Adopted from scQuint processing (https://github.com/songlab-cal/scquint/tree/main). Compute intron proportions
+    (PSI scores) within each cell and intron group.
 
-    .. math::
-        \psi_g^{c} = \frac{1}{\sum_i (\mathbf{x}_g^c)_i} \mathbf{x}_g^c
+    $$
+    \psi_{c,j} = \frac{x_{c,j}}{\sum_{i \in g(j)} x_{c,i}}.
+    $$
 
-    where :math:`\mathbf{x}_g^c` are the intron counts of intron group :math:`g` for a specifc cell :math:`c`.
+    Here $g(j)$ is the group containing intron $j$. Zero-total groups are assigned zero after division.
+    The sparse input is densified, and singleton intron groups raise ValueError.
 
-    The function first relabels the intron groups and then computes the PSI values using the formula given above.
-
-    :param adata: AnnData object containing the data
-    :return: PSI values
-    :rtype: numpy.ndarray
+    :param adata: (AnnData) Sparse counts in X and intron-group labels in var["intron_group"].
+    :return: (np.ndarray) Dense PSI matrix with the same cell-by-intron shape as X.
 
     Example:
     >>> adata = AnnData(X, var=var)
@@ -339,13 +360,13 @@ def compute_psi(adata: AnnData) -> np.ndarray:
 
 def smoothed_psi(adata: AnnData) -> np.ndarray:
     r"""
-    Given an AnnData object, compute the smoothed PSI values for each cell and intron group.
-    The function first relabels the intron groups and then computes the PSI values using the
-    `make_intron_group_summation_cpu` function. The smoothed PSI values are then returned.
+    Adopted from scQuint processing (https://github.com/songlab-cal/scquint/tree/main). Compute PSI scores after adding
+    a pseudocount based on pooled intron proportions. Within each group, pooled proportions are added to every cell
+    before normalization. This adds one total pseudocount per group when the pooled group total is positive. Groups with
+    zero pooled counts can yield NaNs.
 
-    :param adata: AnnData object containing the data
-    :return: smoothed PSI values
-    :rtype: numpy.ndarray
+    :param adata: (AnnData) Sparse counts in X and group labels in var["intron_group"].
+    :return: (np.ndarray) Dense smoothed proportions with the same shape as X.
 
     Example:
     >>> adata = AnnData(X, var=var)
@@ -426,13 +447,12 @@ def remove_cell_genes(adata1: AnnData, adata2: AnnData) -> AnnData:
 
 def pca_on_transcript_usage_data(adata: AnnData) -> AnnData:
     r"""
-    Given an AnnData object, perform PCA on the transcript usage data. The function first
-    computes the smoothed PSI values and then applies PCA to reduce the dimensionality of
-    the data. The PCA results are stored in the `obsm` attribute of the AnnData object.
+    Compute a 50-component PCA embedding from the existing Psi layer.
+    The first feature of each intron group is removed before PCA. This function does not compute or smooth PSI.
+    At least 50 cells and 50 retained features are required by the fixed component count.
 
-    :param adata: AnnData object containing the data
-    :return: AnnData object with PCA results stored in `obsm`
-    :rtype: AnnData
+    :param adata: (AnnData) Data with a dense layers["Psi"] matrix and var["intron_group"] labels.
+    :return: (AnnData) The input object, updated in place with obsm["X_pca"].
 
     Example:
     >>> adata = AnnData(X, var=var)
@@ -474,6 +494,8 @@ def setup_crecerelle(root_directory: str, **kwargs) -> None:
     - root_directory/crecerelle_results/figures/dataset_name
 
     :param root_directory: Root directory for crecerelle results
+    :param kwargs: (dict) Optional dataset_name adds dataset-specific data and figure directories.
+    :return: None. Directories are created on disk and their status is printed.
     """
 
     # Define the base directory for results
@@ -515,6 +537,7 @@ def rank_intron_groups_groups(adata: AnnData, diff_spl_intron_groups: pd.DataFra
     :param adata: AnnData object containing the data
     :param diff_spl_intron_groups: DataFrame containing differential splicing results for intron groups
     :param groupby: str specifying the groupby variable used in the differential splicing analysis (e.g. leiden_res_0.3)
+    :return: None. Ranking results are written to adata.uns["rank_intron_groups_groups"]
     """
     # Extract results as arrays
 
@@ -647,8 +670,15 @@ def rank_intron_groups_groups_df(adata: AnnData, group: str) -> pd.DataFrame:
     )
 
 def sort_dataframe_by_rank(df_to_sort: pd.DataFrame, sort_column: str, ordering_series: pd.Series) -> pd.DataFrame:
-    """
-    Sorts a DataFrame based on the explicit order of values in a separate Series.
+    r"""
+    Sort rows according to the first-occurrence order of values in an external series.
+    The input column is converted in place to an ordered categorical. Values absent from the ordering become
+    missing categories and sort last; the returned sorted DataFrame has a fresh integer index.
+
+    :param df_to_sort: (pd.DataFrame) Table whose sorting column is converted to categorical values.
+    :param sort_column: (str) Name of the column to order.
+    :param ordering_series: (pd.Series) Values defining the category order; duplicates are removed.
+    :return: (pd.DataFrame) Sorted table with a reset index.
     """
     # Create the Categorical type based on the external ordering
     df_to_sort[sort_column] = pd.Categorical(
@@ -671,6 +701,7 @@ def rank_introns_groups(adata: AnnData, diff_spl_introns: pd.DataFrame, groupby:
     :param groupby: str specifying the groupby variable used in the differential splicing analysis (e.g. leiden_res_0.3)
     :param sortby: str specifying the column name by which to sort the introns in the resulting DataFrame (e.g. "intron_group", "logfoldchange", "delta_psi")
     :param groups_test: List of group names for which to rank the introns ["0", "1", "2", ...]
+    :return: None. Ranking results are written to adata.uns["rank_introns_groups"].
     """
     # Select those introns that are included (delta_psi > 0.05) as marker introns
     potential_marker_introns = diff_spl_introns[diff_spl_introns["delta_psi"] >= 0.05]
@@ -784,7 +815,6 @@ def rank_introns_groups_df(adata: AnnData, group: str) -> pd.DataFrame:
 
     :param adata: AnnData object containing the data
     :param group: Group name for which to retrieve the ranked intron groups
-    :return: DataFrame containing the ranked intron groups for the specified group
     """
 
     # Assert if adata contains "rank_introns_groups" in .uns
@@ -810,20 +840,15 @@ def determine_zanidm_cases(
         **kwargs
 ) -> Dict[str, int]:
     r"""
-    Given an AnnData object containing pre-processed transcript usage data, determine the number of each case of the
-    ZANIDM observation model present. For the observed intron counts `:math: \mathbf{x} \in \mathbb{N}^d` of splicing
-    event with :math: d` components, the scenarios are defined as follows:
+    Count ZANIDM observation cases across all cell-by-intron-group combinations.
+    Case 1 has all positive counts; case 2 has all zero counts; case 3 has exactly one positive count; case 4
+    has positive total counts and between one and d - 2 zeros in a group of size d. Groups should contain at
+    least two introns so these cases form a partition.
 
-    Case 1: counts of each intron in intron group are greater than zero i.e. `:math: \forall j x_j > 0, N > 0`
-    Case 2: all counts of each intron in intron group are zero i.e. `:math: \forall j x_j = 0, N = 0`
-    Case 3: d - 1 introns in intron group are zero and number of trials N > 0
-    Case 4: d - 2 introns are zero and number of trials N > 0
-
-    The number of occurences of each case is returned.
-
-    :param adata: AnnData object containing transcript usage data
-    :return: Dictionary containing the number of occurences of each case
-    :rtype: Dict[str, int]
+    :param adata: (AnnData) Sparse layers["counts"], sparse X, group labels in var["intron_group"], and cell annotations.
+    :param kwargs: (dict) Required keys cell_type_key and cell_type_groups_key identify the ontology and tissue/group
+        columns in obs used to construct the dataset.
+    :return: (Dict[str, int]) Counts under "case_1", "case_2", "case_3", and "case_4".
     """
 
     # Determine that layer "counts" is present
@@ -967,16 +992,16 @@ def distance_matrix(
     distance matrix between the cell embeddings. The cells shall be ordered according to the cluster_key (e.g. cell
     type, Leiden cluster). If the number of cells is too large, it is recommended to average the embeddings and
     calculate the distance matrix per cluster. The distance metric can be chosen but at the moment only supports
-    Euclidean distance. An np.ndarray containing the distance matrix and an np.ndarray containing the order of the cells
+    Euclidean distance. A np.ndarray containing the distance matrix and a np.ndarray containing the order of the cells
     according to cluster_key are returned.
 
-    :param adata: AnnData object
-    :param embedding_key: str
-    :param cluster_key: str
-    :param average_embeddings: bool
-    :param distance_metric: str
-    :param kwargs: dict
-    :return:
+    :param adata: (AnnData) Object containing the embedding and cluster annotations.
+    :param embedding_key: (str) Key of the embedding matrix in obsm.
+    :param cluster_key: (str) Column in obs containing cluster labels.
+    :param average_embeddings: (bool) Whether to average embeddings within clusters before computing distances.
+    :param distance_metric: (str) Distance metric; only "euclidean" is accepted.
+    :param kwargs: (dict) Additional arguments, currently unused.
+    :return: (Tuple[np.ndarray, np.ndarray]) Square distance matrix and corresponding row/column cluster labels.
     """
     # Check if embedding_key is present in .obsm
     assert embedding_key in adata.obsm, f"Embedding key '{embedding_key}' not found in adata.obsm. Please ensure that the specified embedding key is present in the AnnData object and contains the cell embeddings."
@@ -1084,30 +1109,33 @@ def calculate_latent_space_geometry(
     Calculate the geometry of the latent space based on the provided distance matrices and cluster annotations.
 
     The seed similarity matrix measures using the Spearman correlation how well the latent space geometry is preserved across
-    different random seeds. It is calculated for every pair of seeds :math:`(s,t)` as the Spearman correlation
+    different random seeds. It is calculated for every pair of seeds $(s,t)$ as the Spearman correlation
 
-    ..math::
+    $$
         R_{s,t} = \rho_{Spearman}(\mathbf{x}^{(s)}, \mathbf{x}^{(t)})
+    $$
 
-    of their upper triangular distance matrices stacked into 1D arrays :math:`\mathbf{x}^{(s)}` and
-    :math:`\mathbf{x}^{(t)}`.
+    of their upper triangular distance matrices stacked into 1D arrays $\mathbf{x}^{(s)}$ and
+    $\mathbf{x}^{(t)}$.
 
-    The consensus distance matrix :math:`\mathbf{D}_{\text{cons}} \in \mathbb{R}^{n \times n}` assesses the distance agreement across seeds and is calculated as the median of the
-    normalised distance matrices across seeds :math:`s`
+    The consensus distance matrix $\mathbf{D}_{\text{cons}} \in \mathbb{R}^{n \times n}$ assesses the distance agreement across seeds and is calculated as the median of the
+    normalized distance matrices across seeds $s$
 
-    ..math::
+    $$
         D_{ij}^{cons} = median_s \widetilde{D}_{ij}^{(s)}
+    $$
 
-    where :math:`\widetilde{D}_{ij}^{(s)}` is the normalised distance matrix for seed :math:`s` and cell types :math:`i`
-    and :math:`j`. It is normalised by the median of the off-diagonal distances for each seed :math:`s` to account for
+    where $\widetilde{D}_{ij}^{(s)}$ is the normalized distance matrix for seed $s$ and cell types $i$
+    and $j$. It is normalized by the median of the off-diagonal distances for each seed $s$ to account for
     differences in scale across seeds. The consensus distance matrix should be evaluated in conjunction with the
-    interquartile range matrix :math:`\mathbf{U} \in \mathbb{R}^{n \times n}` which is calculated for each pair
-    :math:`(i,j)` as the interquartile range of the normalised distances across seeds :math:`s` as
+    interquartile range matrix $\mathbf{U} \in \mathbb{R}^{n \times n}$ which is calculated for each pair
+    $(i,j)$ as the interquartile range of the normalized distances across seeds $s$ as
 
-    ..math::
+    $$
         U_{ij} = Q_{0.75}(\widetilde{D}_{ij}^{(0)}, \dots, \widetilde{D}_{ij}^{(S)}) -  Q_{0.25}(\widetilde{D}_{ij}^{(0)}, \dots, \widetilde{D}_{ij}^{(S)})
+    $$
 
-    Read jointly for a pair of cell types :math:`(i,j)`, the consensus distance matrix and the interquartile range
+    Read jointly for a pair of cell types $(i,j)$, the consensus distance matrix and the interquartile range
     matrix indicate: large distance, small iqr means reproducibly separated; small distance, small iqr means
     reproducibly close; large distance, large iqr means inconsistent separation dependent on the seed.
 
@@ -1286,35 +1314,33 @@ def compute_neighbour_retention(
     cell_labels: np.ndarray=None
 ) -> pd.DataFrame:
     r"""
-    Calculates the cell-type specific reference-free neighbor retention score :math:`R_i^(k)`. The score asses if a
-    cell type  math:`i` retains its math:`k` nearest neighbors across different random seeds. For cell type  math:`i` of
-    all  math:`N`cell types, compare it k-neighbor sets across all
+    Calculates the cell-type specific reference-free neighbor retention score $R_i^(k)$. The score asses if a
+    cell type  $i$ retains its $k$ nearest neighbors across different random seeds. For cell type  $i$ of
+    all  $N$ cell types, compare it k-neighbor sets across all
 
-    ..math::
-        Rn_{sets} =
-            \left(
-                \begin{matrix}
-                    S \\
-                    2
-                \end{matrix}
-            \right)
+    $$
+    Rn_{sets} = \left( \begin{matrix} S \\ 2 \end{matrix} \right)
+    $$
 
-    pairs of seeds. For seeds  math:`(s,t), compute the intersection of the k-nearest neighbor sets`
+    pairs of seeds. For seeds  $(s,t)$, compute the intersection of the $k$-nearest neighbor sets`
 
-    ..math::
-        O_i^{(s, t, k)} = \frac{|N_i^{(s, k)} \cap N_i^{(t, k)}|}{k}.
+    $$
+    O_i^{(s, t, k)} = \frac{|N_i^{(s, k)} \cap N_i^{(t, k)}|}{k}.
+    $$
 
     The retention score is then the average of the intersection over all seed pairs given by
 
-    ..math::
-            R_i^{(k)} = \frac{1}{n_{sets}} \sum_{s < t} O_i^{(s, t, k)}
+    $$
+    R_i^{(k)} = \frac{1}{n_{sets}} \sum_{s < t} O_i^{(s, t, k)}
+    $$
 
-    For ten seeds, if the retention score is 0.8, it means that on average 80% of the k-nearest neighbors of cell type i
-    are retained across all seed pairs. As a baseline, the expected intersection of two random k-nearest neighbor sets
-    is given by
+    For ten seeds, if the retention score is 0.8, it means that on average 80% of the $k$-nearest neighbors of cell type
+    $i$ are retained across all seed pairs. As a baseline, the expected intersection of two random k-nearest neighbor
+    sets is given by
 
-    ..math::
-        \mathbb{E}[O_i] = \frac{k}{N-1}
+    $$
+    \mathbb{E}[O_i] = \frac{k}{N-1}
+    $$
 
     indicating chance level retention. The retention score is expected to be above the chance level if the local
     neighbors are preserved across seeds.
@@ -1507,25 +1533,9 @@ def split_adata_dataset(
 
 class GeneExpressionTranscriptUsageDataset(Dataset):
     r"""
-    Dataset class for gene expression and transcript usage data. Each data point is a tuple where the first entry is
-    a torch.Tensor representing the gene expression counts, the second entry is a torch.Tensor representing the log(1+x)
-    transformed normalised gene expression counts (called gene_levels), the third entry a torch.Tensor for the intron
-    counts, the fourth entry a torch.Tensor for the PSI scores, the fifth entry a numpy.ndarray for the cell ontology
-    annotation, and the sixth entry a numpy.ndarray for the tissue type annotation.  The cells for each entry of the
-    four input tensors must be identical.
+    Dataset of aligned cell features and annotations for model training or evaluation.
 
-    :param cell_gene_counts: torch.Tensor of shape (num_cells, num_genes) representing the gene expression counts
-    :param cell_gene_levels: torch.Tensor of shape (num_cells, num_genes) representing the transformed gene counts
-    :param cell_intron_counts: torch.Tensor of shape (num_cells, num_introns) representing the intron counts
-    :param cell_intron_levels: torch.Tensor of shape (num_cells, num_intron_groups) representing the PSI scores
-    :param ontology: numpy.ndarray of shape (num_cells,) representing the cell ontology annotation
-    :param tissue: numpy.ndarray of shape (num_cells,) representing the tissue type annotation
-    :param cell_types: Tuple[str] of cell types to be used for one-hot encoding of the ontology
-    :param transform_gene_counts: str specifying the transformation to be applied to the gene expression counts
-    :param transform_intron_counts: str specifying the transformation to be applied to the intron counts
-    :param transform_intron_levels: str specifying the transformation to be applied to the PSI scores
-    :param transform_ontology: str specifying the transformation to be applied to the ontology
-
+    Each item returns the following entries in order: Gene counts, gene levels, intron counts, intron levels, ontology, and tissue.
     """
 
     def __init__(
@@ -1542,6 +1552,23 @@ class GeneExpressionTranscriptUsageDataset(Dataset):
             transform_intron_levels: str = None,
             transform_ontology: str = "one-hot"
     ) -> None:
+        r"""
+        Store aligned inputs and construct the cell-type vocabulary where applicable.
+        Inputs are stored by reference; count transforms and ontology encoding are applied during item retrieval.
+
+        :param cell_gene_counts: (torch.Tensor) Gene counts with shape (number of cells, number of genes).
+        :param cell_gene_levels: (torch.Tensor) Precomputed gene expression levels with the same shape and cell order as gene counts.
+        :param cell_intron_counts: (torch.Tensor) Intron counts with shape (number of cells, number of introns).
+        :param cell_intron_levels: (torch.Tensor) Precomputed PSI scores or transformed intron levels, one row per cell and column per intron.
+        :param ontology: (np.ndarray) Cell-type labels in the same cell order as the input features.
+        :param tissue: (np.ndarray) Tissue labels in the same cell order as the input features.
+        :param cell_types: (Tuple[str]) Ordered class vocabulary used for label encoding; defaults to TABULA_MURIS_CELL_TYPES.
+        :param transform_gene_counts: (str | None) Use "log" to apply log(1 + x) when retrieving counts; other values leave counts unchanged.
+        :param transform_intron_counts: (str | None) Use exactly "log" to apply log(1 + x) when retrieving counts.
+            Other values, including the TranscriptUsageDataset default "log(1 + x)", leave counts unchanged.
+        :param transform_intron_levels: (str | None) Must be None; other values raise NotImplementedError when retrieving an item.
+        :param transform_ontology: (str | None) Use "one-hot" for one-hot class targets; otherwise return the original ontology label.
+        """
         super().__init__()
         assert ((cell_gene_counts.shape[0] == cell_intron_counts.shape[0])
                 and (cell_gene_counts.shape[0] == cell_intron_levels.shape[0])
@@ -1568,12 +1595,24 @@ class GeneExpressionTranscriptUsageDataset(Dataset):
         self.class_to_int = {class_label: i for i, class_label in enumerate(cell_types)}
 
     def __len__(self) -> int:
+        r"""
+        Return the number of cells stored in the dataset.
+
+        :return: (int) Number of cell observations.
+        """
         return self.num_cells
 
     def __getitem__(
             self,
             idx
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | str, str]:
+        r"""
+        Retrieve one cell and apply the configured transformations.
+        Cell-type labels must belong to cell_types whenever vocabulary-based encoding is used.
+
+        :param idx: (int) Zero-based cell index.
+        :return: (tuple) Gene counts, gene levels, intron counts, intron levels, ontology, and tissue.
+        """
         gene_counts = self.cell_gene_counts[idx]
         gene_levels = self.cell_gene_levels[idx]
         intron_counts = self.cell_intron_counts[idx]
@@ -1601,10 +1640,9 @@ class GeneExpressionTranscriptUsageDataset(Dataset):
 
 class GeneExpressionDataset(Dataset):
     r"""
-    Dataset class for gene expression data. Each data point is a tuple where the first entry is a torch.Tensor
-    representing the gene expression counts, the second entry is a torch.Tensor representing the log(1+x) transformed
-    normalised gene expression counts (called gene_levels), the third entry a numpy.ndarray for the cell ontology
-    annotation, and the fourth entry a numpy.ndarray for the tissue type annotation.
+    Dataset of aligned cell features and annotations for model training or evaluation.
+
+    Each item returns the following entries in order: Gene counts, gene levels, ontology, and tissue.
     """
 
     def __init__(
@@ -1617,6 +1655,18 @@ class GeneExpressionDataset(Dataset):
             transform_gene_counts: str = None,
             transform_ontology: str = "one-hot"
     ) -> None:
+        r"""
+        Store aligned inputs and construct the cell-type vocabulary where applicable.
+        Inputs are stored by reference; count transforms and ontology encoding are applied during item retrieval.
+
+        :param cell_gene_counts: (torch.Tensor) Gene counts with shape (number of cells, number of genes).
+        :param cell_gene_levels: (torch.Tensor) Precomputed gene expression levels with the same shape and cell order as gene counts.
+        :param ontology: (np.ndarray) Cell-type labels in the same cell order as the input features.
+        :param tissue: (np.ndarray) Tissue labels in the same cell order as the input features.
+        :param cell_types: (Tuple[str]) Ordered class vocabulary used for label encoding; defaults to TABULA_MURIS_CELL_TYPES.
+        :param transform_gene_counts: (str | None) Use "log" to apply log(1 + x) when retrieving counts; other values leave counts unchanged.
+        :param transform_ontology: (str | None) Use "one-hot" for one-hot class targets; otherwise return the original ontology label.
+        """
         super().__init__()
 
         self.num_cells = cell_gene_counts.shape[0]
@@ -1632,12 +1682,24 @@ class GeneExpressionDataset(Dataset):
         self.class_to_int = {class_label: i for i, class_label in enumerate(cell_types)}
 
     def __len__(self) -> int:
+        r"""
+        Return the number of cells stored in the dataset.
+
+        :return: (int) Number of cell observations.
+        """
         return self.num_cells
 
     def __getitem__(
             self,
             idx: int
     ) -> Tuple[Tensor, Tensor, Tensor | np.ndarray[Any, np.dtype[Any] | Any], np.ndarray[Any, np.dtype[Any] | Any]]:
+        r"""
+        Retrieve one cell and apply the configured transformations.
+        Cell-type labels must belong to cell_types whenever vocabulary-based encoding is used.
+
+        :param idx: (int) Zero-based cell index.
+        :return: (tuple) Gene counts, gene levels, ontology, and tissue.
+        """
         gene_counts = self.cell_gene_counts[idx]
         gene_levels = self.cell_gene_levels[idx]
 
@@ -1657,10 +1719,9 @@ class GeneExpressionDataset(Dataset):
 
 class TranscriptUsageDataset(Dataset):
     r"""
-    Dataset class for transcript usage data. Each data point is a tuple where the first entry is a torch.Tensor for the
-    intron counts, the second entry a torch.Tensor intron levels (this can be log(1+x)-transformed and normalised intron
-    counts, or the PSI scores), the third entry a numpy.ndarray for the cell ontology annotation, and the fourth entry
-    a numpy.ndarray for the tissue type annotation.
+    Dataset of aligned cell features and annotations for model training or evaluation.
+
+    Each item returns the following entries in order: Intron counts, intron levels, ontology, and tissue.
     """
 
     def __init__(
@@ -1674,6 +1735,20 @@ class TranscriptUsageDataset(Dataset):
             transform_intron_levels: str = None,
             transform_ontology: str = "one-hot"
     ) -> None:
+        r"""
+        Store aligned inputs and construct the cell-type vocabulary where applicable.
+        Inputs are stored by reference; count transforms and ontology encoding are applied during item retrieval.
+
+        :param cell_intron_counts: (torch.Tensor) Intron counts with shape (number of cells, number of introns).
+        :param cell_intron_levels: (torch.Tensor) Precomputed PSI scores or transformed intron levels, one row per cell and column per intron.
+        :param ontology: (np.ndarray) Cell-type labels in the same cell order as the input features.
+        :param tissue: (np.ndarray) Tissue labels in the same cell order as the input features.
+        :param cell_types: (Tuple[str]) Ordered class vocabulary used for label encoding; defaults to TABULA_MURIS_CELL_TYPES.
+        :param transform_intron_counts: (str | None) Use exactly "log" to apply log(1 + x) when retrieving counts.
+            Other values, including the TranscriptUsageDataset default "log(1 + x)", leave counts unchanged.
+        :param transform_intron_levels: (str | None) Must be None; other values raise NotImplementedError when retrieving an item.
+        :param transform_ontology: (str | None) Use "one-hot" for one-hot class targets; otherwise return the original ontology label.
+        """
         super().__init__()
 
         self.num_cells = cell_intron_counts.shape[0]
@@ -1690,12 +1765,24 @@ class TranscriptUsageDataset(Dataset):
         self.class_to_int = {class_label: i for i, class_label in enumerate(cell_types)}
 
     def __len__(self) -> int:
+        r"""
+        Return the number of cells stored in the dataset.
+
+        :return: (int) Number of cell observations.
+        """
         return self.num_cells
 
     def __getitem__(
             self,
             idx
     ) -> Tuple[Tensor, Tensor, Tensor | np.ndarray[Any, np.dtype[Any] | Any], np.ndarray[Any, np.dtype[Any] | Any]]:
+        r"""
+        Retrieve one cell and apply the configured transformations.
+        Cell-type labels must belong to cell_types whenever vocabulary-based encoding is used.
+
+        :param idx: (int) Zero-based cell index.
+        :return: (tuple) Intron counts, intron levels, ontology, and tissue.
+        """
         intron_counts = self.cell_intron_counts[idx]
         intron_levels = self.cell_intron_levels[idx]
 
@@ -1718,7 +1805,9 @@ class TranscriptUsageDataset(Dataset):
 
 class MarkerGeneCellTypeDataset(Dataset):
     r"""
-    Dataset class for binary classification of cell types based on marker genes.
+    Dataset of aligned cell features and annotations for binary marker-gene classification.
+
+    Each item returns the following entries in order: Marker expression vector and scalar float tensor label (1 for the target cell type, otherwise 0).
     """
     def __init__(
             self,
@@ -1726,6 +1815,14 @@ class MarkerGeneCellTypeDataset(Dataset):
             ontology: np.ndarray,  # shape (num_cells,)
             cell_type: str,
     ) -> None:
+        r"""
+        Store aligned inputs and construct the cell-type vocabulary where applicable.
+        Inputs are stored by reference; count transforms and ontology encoding are applied during item retrieval.
+
+        :param marker_genes: (torch.Tensor) Marker expression matrix with shape (number of cells, number of marker genes).
+        :param ontology: (np.ndarray) Cell-type labels in the same cell order as the input features.
+        :param cell_type: (str) Target cell type assigned binary label 1; all other labels receive 0.
+        """
         super().__init__()
 
         self.marker_genes = marker_genes
@@ -1735,12 +1832,23 @@ class MarkerGeneCellTypeDataset(Dataset):
         self.cell_type = cell_type
 
     def __len__(self) -> int:
+        r"""
+        Return the number of cells stored in the dataset.
+
+        :return: (int) Number of cell observations.
+        """
         return self.num_cells
 
     def __getitem__(
             self,
             idx: int
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        r"""
+        Retrieve one marker-expression vector and construct its binary target.
+
+        :param idx: (int) Zero-based cell index.
+        :return: (tuple) Marker expression vector and scalar float tensor label (1 for the target cell type, otherwise 0).
+        """
 
         marker_gene_expression = self.marker_genes[idx]
         cell_ontology = self.ontology[idx]
@@ -1753,6 +1861,11 @@ class MarkerGeneCellTypeDataset(Dataset):
         return marker_gene_expression, cell_label
 
 class VAEEmbeddingsCellTypeDataset(Dataset):
+    r"""
+    Dataset of aligned cell features and annotations for model training or evaluation.
+
+    Each item returns the following entries in order: VAE embedding, encoded ontology target, and tissue.
+    """
     def __init__(
             self,
             vae_embeddings: torch.Tensor,
@@ -1762,6 +1875,17 @@ class VAEEmbeddingsCellTypeDataset(Dataset):
             transform_inputs=None,
             transform_ontology=None,
     ) -> None:
+        r"""
+        Store aligned inputs and construct the cell-type vocabulary where applicable.
+        Inputs are stored by reference; count transforms and ontology encoding are applied during item retrieval.
+
+        :param vae_embeddings: (torch.Tensor) Latent feature matrix with shape (number of cells, embedding dimension).
+        :param ontology: (np.ndarray) Cell-type labels in the same cell order as the input features.
+        :param tissue: (np.ndarray) Tissue labels in the same cell order as the input features.
+        :param cell_types: (Tuple[str]) Ordered class vocabulary used for label encoding; defaults to TABULA_MURIS_CELL_TYPES.
+        :param transform_inputs: (object | None) Input transforms are unsupported; a truthy value raises ValueError during item retrieval.
+        :param transform_ontology: (str | None) Use "one-hot" for one-hot targets; otherwise return a scalar long tensor class index.
+        """
         super().__init__()
 
         self.vae_embeddings = vae_embeddings
@@ -1777,13 +1901,24 @@ class VAEEmbeddingsCellTypeDataset(Dataset):
         self.class_to_int = {class_label: i for i, class_label in enumerate(self.cell_types)}
 
     def __len__(self) -> int:
+        r"""
+        Return the number of cells stored in the dataset.
+
+        :return: (int) Number of cell observations.
+        """
         return self.num_cells
 
     def __getitem__(
             self,
             idx
     ) -> Tuple[torch.Tensor, torch.Tensor | np.ndarray[Any, np.dtype[Any] | Any], np.ndarray[Any, np.dtype[Any] | Any]]:
+        r"""
+        Retrieve one cell and apply the configured transformations.
+        Cell-type labels must belong to cell_types whenever vocabulary-based encoding is used.
 
+        :param idx: (int) Zero-based cell index.
+        :return: (tuple) VAE embedding, encoded ontology target, and tissue.
+        """
         vae_embedding = self.vae_embeddings[idx]
         cell_tissue = self.tissue[idx]
 
@@ -1799,6 +1934,12 @@ class VAEEmbeddingsCellTypeDataset(Dataset):
         return vae_embedding, cell_ontology, cell_tissue
 
 class EmbeddingCellTypeDataset(Dataset):
+    r"""
+    Dataset of aligned cell features and annotations for model training or evaluation.
+
+    Each item returns the following entries in order: Private gene expression embedding, private transcript usage embedding, shared gene expression embedding, shared transcript usage embedding, joint shared embedding, encoded ontology target, and tissue.
+    """
+
     def __init__(
             self,
             private_embeddings: Tuple[torch.Tensor, torch.Tensor], # private GE, private TU
@@ -1810,6 +1951,19 @@ class EmbeddingCellTypeDataset(Dataset):
             transform_inputs=None,
             transform_ontology=None,
     ) -> None:
+        r"""
+        Store aligned inputs and construct the cell-type vocabulary where applicable.
+        Inputs are stored by reference; count transforms and ontology encoding are applied during item retrieval.
+
+        :param private_embeddings: (Tuple[torch.Tensor, torch.Tensor]) Private gene expression and transcript usage embeddings, in cell order.
+        :param shared_unimodal_embeddings: (Tuple[torch.Tensor, torch.Tensor]) Shared embeddings from the gene expression and transcript usage encoders.
+        :param shared_embeddings: (torch.Tensor) Joint shared embedding matrix in the same cell order.
+        :param ontology: (np.ndarray) Cell-type labels in the same cell order as the input features.
+        :param tissue: (np.ndarray) Tissue labels in the same cell order as the input features.
+        :param cell_types: (Tuple[str]) Ordered class vocabulary used for label encoding; defaults to TABULA_MURIS_CELL_TYPES.
+        :param transform_inputs: (object | None) Input transforms are unsupported; a truthy value raises ValueError during item retrieval.
+        :param transform_ontology: (str | None) Use "one-hot" for one-hot targets; otherwise return a scalar long tensor class index.
+        """
         super().__init__()
 
         self.private_embeddings_1 = private_embeddings[0]
@@ -1833,13 +1987,25 @@ class EmbeddingCellTypeDataset(Dataset):
         self.class_to_int = {class_label: i for i, class_label in enumerate(self.cell_types)}
 
     def __len__(self) -> int:
+        r"""
+        Return the number of cells stored in the dataset.
+
+        :return: (int) Number of cell observations.
+        """
         return self.num_cells
 
     def __getitem__(
             self,
             idx
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | np.ndarray[Any, np.dtype[Any] | Any], np.ndarray[Any, np.dtype[Any] | Any]]:
+        r"""
+        Retrieve one cell and apply the configured transformations.
+        Cell-type labels must belong to cell_types whenever vocabulary-based encoding is used.
 
+        :param idx: (int) Zero-based cell index.
+        :return: (tuple) Private gene expression embedding, private transcript usage embedding, shared gene expression
+            embedding, shared transcript usage embedding, joint shared embedding, encoded ontology target, and tissue.
+        """
         private_embedding_1 = self.private_embeddings_1[idx]
         private_embedding_2 = self.private_embeddings_2[idx]
         shared_unimodal_embedding_1 = self.shared_unimodal_embeddings_1[idx]
@@ -1861,11 +2027,10 @@ class EmbeddingCellTypeDataset(Dataset):
 
 def intron_names_2_integers(intron_groups_by_name: np.ndarray) -> np.ndarray:
     r"""
-    Given np.array of intron group names, an ordered dictionary is created mapping intron group names to integers
-    which is then used to return a numpy array containing the mapped intron groups as integers.
+    Map intron-group names to consecutive zero-based integers in order of first appearance.
 
-    :param intron_groups_by_name:
-    :return:
+    :param intron_groups_by_name: (np.ndarray) One-dimensional group-name array, with one entry per intron.
+    :return: (np.ndarray) Integer group indices preserving the input feature order.
     """
 
     unique_intron_group_names = collections.OrderedDict.fromkeys(intron_groups_by_name)
@@ -1932,19 +2097,20 @@ def inference_vae(
         batch_size: int = 256,
 ) -> AnnData:
     r"""
-    Given the data both as AnnData object and as Dataset, a trained model (instance of BetaVAE), infer the latent mean embeddings, the two UMAP
-    dimensions, and the data reconstructions. The latent mean embeddings and the UMAP embeddings are both added as .obsm
-    to the given AnnData object. The data reconstructions are added as an additional layer. The edited AnnData object
-    is returned.
+    This is the inference method for downstream-tasks using tuVI. Infer posterior means, reconstructions, per-cell
+    negative log-likelihoods, and a two-dimensional UMAP. The model is placed in evaluation mode, and results are
+    written to the supplied AnnData object in dataset order.
 
-    :param adata: (AnnData)
-    :param dataset:
-    :param model: (BetaVAE)
-    :param likelihood_type: (str) The likelihood function used in the model, e.g. "poisson", "gaussian", etc.
-    :param data_modality: (str) The type of data modality, either "Gene expression" or "Transcript usage".
-    :param count_data_included: (bool)
-    :param batch_size: (int)
-    :return: adata
+    :param adata: (AnnData) Output object with the same cells and features, in the same order, as the dataset.
+    :param dataset: (GeneExpressionDataset | TranscriptUsageDataset) Dataset yielding counts, levels, ontology, and tissue.
+    :param model: (BetaVAE) Trained unimodal model exposing latent_dim, device, variational_posterior, and generative_model.
+    :param likelihood_type: (str) Prefix used for output keys; it does not change the model likelihood.
+    :param data_modality: (str) Either "Gene expression" or "Transcript usage".
+    :param count_data_included: (bool) Use True for the implemented counts/levels path. The False branch creates
+        a tensor that is subsequently indexed as though it were a counts/levels pair and is not a valid general batch path.
+    :param batch_size: (int) Number of cells per unshuffled batch. Default is 256.
+    :return: (AnnData) Input object updated with likelihood-prefixed _latent_mean and _X_umap in obsm,
+        _reconstructions in layers, and _nll in obs.
     """
 
     model.eval()
@@ -2195,12 +2361,15 @@ def create_differential_analysis_distriubtion_df(
         **kwargs
 ) -> pd.DataFrame:
     r"""
-    Calculate for either a set of genes or a set of isoforms of a cluster group, the distribution of expression levels
-    or PSI scores, respectively, and return a DataFrame in long format.
-    :param adata: (AnnData)
-    :param cluster_group: (str)
-    :param top_genes: (List[str])
-    :param transcriptomic_facet: (str)
+    Build a long-format table of expression or PSI values for selected features in a target cluster versus all other cells.
+    The function also adds a target/other annotation column to adata.obs.
+
+    :param adata: (AnnData) Data with obs["leiden"] and expression values in X or transcript proportions in layers["PSI_raw"].
+    :param cluster_group: (str) Target Leiden cluster label.
+    :param top_genes: (List[str]) Variable names of genes or introns to extract.
+    :param transcriptomic_facet: (str) Either "Gene expression" or "Transcript usage".
+    :param kwargs: (dict) Additional arguments, currently unused.
+    :return: (pd.DataFrame) Group, Gene, and Expression columns, or Group, Isoform, and PSI-score columns.
     """
 
     if transcriptomic_facet == "Gene expression":
@@ -2451,6 +2620,8 @@ def load_merge_and_save_enrichment_terms(
     :param output_filename: The filename for the output file (i.e. "dsg_unique_terms_df_all.csv", "deg_unique_terms_df_all.csv", "overlapping_terms_df_all.csv")
     :param path2data: The path to the directory containing the CSV files
 
+    :param kwargs: (dict) Optional dataset_name fills the dataset column; defaults to an empty string.
+    :return: (pd.DataFrame) Concatenated terms, deduplicated by native identifier, also saved to path2data + output_filename.
     """
     dataframes = []
     dataset_name = kwargs.get("dataset_name", "")
@@ -2498,7 +2669,7 @@ def inference_trvi(
     predictions as .obs. The edited AnnData objects are returned as Tuple
 
     :param adata: Tuple of two AnnData objects with adata[0] containing gene expression and adata[1] containing transcript usage data
-    :param dataset: A customised PyTorch dataset of type GeneExpressionTranscriptUsageDataset
+    :param dataset: A customized PyTorch dataset of type GeneExpressionTranscriptUsageDataset
     :param model: An instance of TRVI
     :param likelihood_types: A list of strings of likelihoods where likelihoods[0] is for gene expression and likelihoods[1] for transcript usage e.g. ["ZINB", "ZIDM"]
     :param count_data_included: A list of bool, in general [True, True] for both modalities unless Gaussian likelihoods are used
@@ -2642,7 +2813,7 @@ def analysis_trvi_relevance_weights_across_cell_types(
     :param cell_type_key: key of cell type (e.g. cell_ontology_class)
     :param sort_cell_type_key: optional key to sort cell types according to, e.g. organ system key
     :param kwargs: additional keyword arguments to pass to TRVI
-
+    :return: (Tuple[pd.DataFrame, dict]) Per-cell-type weight statistics and overall GE/TU mean and standard-deviation statistics.
     """
     # For each seed, calculate the mean relevance weight per cell type and the total mean relevance weight across all cell types
     list_of_means = []
@@ -2749,6 +2920,27 @@ def training_vae_embeddings_cell_type_classification(
         batch_size: int = 64
 
 ) -> None:
+    r"""
+    Train a logistic regression classifier on VAE latent means using the training and validation partitions.
+    The delegated training helper handles training outputs and checkpoints. The input AnnData object is not modified.
+
+    :param adata: (AnnData) Data with obs columns tissue, data_partition, and cell_ontology_class, and
+        obsm[likelihood + "_latent_mean"]. Partition labels must include "train" and "val".
+    :param tissue: (str) Tissue to select, or "All" to include every tissue.
+    :param modality: (str) Modality identifier used in the classifier name.
+    :param likelihood: (str) Prefix selecting the VAE embedding in obsm.
+    :param cell_types: (Tuple[str]) Ordered class labels defining target indices and output classes.
+    :param classification: (str) Classifier type; only "LogisticRegression" is supported.
+    :param device: (str) Device on which to train the classifier. Default is "cuda".
+    :param num_hvg: (int) Feature-count identifier appended to the dataset name for training outputs.
+    :param dataset_name: (str) Dataset identifier used for training outputs.
+    :param num_epochs: (int) Number of training epochs. Default is 200.
+    :param learning_rate: (float) Adam learning rate. Default is 0.001.
+    :param weight_decay: (float) Adam weight decay. Default is 0.0001.
+    :param batch_size: (int) Training and validation batch size. Default is 64.
+    :return: None. Training is performed through train_vae_embedding_cell_type_classifier.
+    """
+
     if tissue == "All":
         adata_tissue = adata.copy()
     else:
@@ -2848,6 +3040,7 @@ def training_cell_type_classifiers_trvi(
     :param learning_rate: The learning rate for the optimizer
     :param weight_decay: The weight decay for the optimizer
     :param batch_size: The batch size for the DataLoader
+    :return: None. Classifier training and checkpoint handling are delegated to the training helper.
     """
 
     """
@@ -3350,8 +3543,11 @@ def cell_type_classification_trvi_dataframe(
         embedding_types: List[str]
 ) -> pd.DataFrame:
     r"""
-    Given a dictionary outputted from the evaluate_cell_type_classifiers_trvi function and a list of embedding types,
-    create a pandas DataFrame for reporting and plotting purposes.
+    Convert nested classification metrics into a long-format table for reporting and plotting.
+
+    :param classification_dict: (dict) Mapping from embedding_types entries to dictionaries containing accuracy, weighted_auroc, and weighted_f1.
+    :param embedding_types: (List[str]) Ordered identifiers to include in the output.
+    :return: (pd.DataFrame) Table with Embedding, Classification Metric, and Value columns; three rows per identifier.
     """
     accuracy_list = []
     weighted_auroc_list = []
@@ -3382,7 +3578,11 @@ def cell_type_classification_dataframe(
         likelihoods: List[str]
 ) -> pd.DataFrame:
     r"""
-    Given a dictionary from scGEVI or tuVI
+    Convert nested classification metrics into a long-format table for reporting and plotting.
+
+    :param classification_dict: (dict) Mapping from likelihoods entries to dictionaries containing accuracy, weighted_auroc, and weighted_f1.
+    :param likelihoods: (List[str]) Ordered identifiers to include in the output.
+    :return: (pd.DataFrame) Table with Likelihood, Classification Metric, and Value columns; three rows per identifier.
     """
     accuracy_list = []
     weighted_auroc_list = []
@@ -3536,6 +3736,19 @@ def evaluate_marker_gene_cell_type_classification(
         data_partition: str = "test",
         device: str = "cuda"
 ) -> Tuple[dict[str, dict[str, float]], np.ndarray]:
+    r"""
+    Load Tabula Muris expression partitions and evaluate a saved binary classifier using a predefined marker panel.
+    Data are read from ./data/tabulaMuris/. Only the requested tissue and partition are evaluated.
+
+    :param dataset_name: (str) Dataset identifier; only "tabulaMuris" is supported.
+    :param tissue: (str) Tissue label to select from obs["tissue"].
+    :param cell_type: (str) Target class: "monocyte", "endothelial cell of coronary artery", "endocardial cell",
+        "fibroblast of cardiac tissue", or "smooth muscle cell".
+    :param checkpoint_index: (int) Epoch/checkpoint identifier passed to the marker-gene evaluator.
+    :param data_partition: (str) Partition to evaluate: "train", "val", or "test". Default is "test".
+    :param device: (str) Device for classifier evaluation. Default is "cuda".
+    :return: (Tuple[dict, np.ndarray]) Classification metrics and predicted binary class indices.
+    """
 
     if dataset_name == "tabulaMuris":
         path2data = "./data/tabulaMuris/"
@@ -3601,6 +3814,18 @@ def create_cell_type_classification_dataset(
         likelihoods: List[str],
         cell_types: Tuple[str]=TABULA_MURIS_CELL_TYPES
 ) -> EmbeddingCellTypeDataset:
+    r"""
+    Construct a classification dataset from the private, unimodal shared, and joint shared TRVI embeddings.
+    Both AnnData objects must have matching cell order. Ontology and tissue annotations are taken from the first.
+
+    :param adata: (Tuple[AnnData, AnnData]) Gene expression and transcript usage objects. Each must contain
+        likelihood-prefixed _private_latent_mean and _shared_latent_mean arrays in obsm. The first also requires
+        the joint key likelihoods[0] + "_" + likelihoods[1] + "_shared_latent_mean" and obs columns
+        cell_ontology_class and tissue.
+    :param likelihoods: (List[str]) Gene expression and transcript usage likelihood prefixes, in that order.
+    :param cell_types: (Tuple[str]) Ordered class labels used to encode ontology annotations.
+    :return: (EmbeddingCellTypeDataset) Dataset returning five embeddings, an integer class label, and tissue.
+    """
 
     # Extract ontology and tissue from the first AnnData object
     ontology = adata[0].obs["cell_ontology_class"].to_numpy()
@@ -3726,6 +3951,11 @@ def evaluate_cell_type_classification(checkpoint_list: List[int], dataset: Embed
     :param dataset_name: The name of the dataset, used to load the correct model checkpoints
     :param device: The device to use for computation, default is "cpu"
     :param cell_ground_truth: The ground truth cell types, default is TABULA_MURIS_CELL_TYPES
+
+    :return: (dict) Mapping from each embedding type to FPR and TPR arrays and a scalar AUC.
+
+    This legacy evaluator loads checkpoints from ./models/ and constructs classifiers with a fixed input dimension
+    of 10 and the TABULA_MURIS_CELL_TYPES output vocabulary. Dataset targets must be one-hot encoded.
     """
     class_to_int = {class_label: i for i, class_label in enumerate(cell_ground_truth)}
     class_index = class_to_int[cell_type]
@@ -3808,15 +4038,15 @@ def evaluate_cell_type_classification(checkpoint_list: List[int], dataset: Embed
 
 def infer_latent_embeddings_VAE(model, dataset, batch_size: int = 128) -> torch.Tensor:
     r"""
-    Given a latent space model and a dataset, infer the latent embeddings of the data
+    Legacy helper intended to infer posterior means through the infer_variational_posterior API.
+    This function enters pdb for every batch and calls .cuda() on a tuple when CUDA is available. It therefore
+    is not a ready-to-use inference path for the current models or dataset layouts; use inference_vae instead.
 
-    :param model:
-    :param dataset:
-    :param batch_size:
-    :return:
-
-    Example:
-
+    :param model: (object) Legacy model exposing dim_latent and infer_variational_posterior, which returns mean and variance.
+    :param dataset: (Dataset) Legacy dataset yielding five entries: gene input, unused value, transcript PSI, ontology, and tissue.
+    :param batch_size: (int) Number of cells per unshuffled batch. Default is 128.
+    :return: (torch.Tensor) Intended CPU posterior-mean matrix with shape (number of cells, model.dim_latent),
+        if the legacy execution requirements are satisfied.
     """
     # Create unshuffled datatloader from training dataset
     dataloader = DataLoader(dataset, batch_size, shuffle=False)
@@ -3851,17 +4081,16 @@ def infer_latent_embeddings_MMVAEplus(
         batch_size: int = 128
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, np.ndarray]:
     r"""
-    Given a GeneExpressionTranscriptUsageMMVAEplus, a GeneExpressionTranscriptUsageDataset, infer a tuple consisting
-    of the shared latent embedding of gene expression and transcript usage, the private latent embedding of gene
-    expression, and the private latent embedding of transcript usage.
+    Infer shared and private posterior means with the legacy MMVAEplus API in dataset order.
+    This helper expects older model attributes and dictionary keys; it does not use the current TRVI interface.
+    It does not switch the model to evaluation mode.
 
-    :param model:
-    :param dataset:
-    :param batch_size:
-    :return:
-
-    Example:
-
+    :param model: (object) Legacy model with dim_latent_shared, dim_latent_1, dim_latent_2, and
+        infer_variational_posterior returning Shared Mean, Private Mean GE, and Private Mean TU.
+    :param dataset: (GeneExpressionTranscriptUsageDataset) Six-entry dataset with one-hot ontology targets.
+    :param batch_size: (int) Number of cells per unshuffled batch. Default is 128.
+    :return: (tuple) CPU shared means, private gene expression means, private transcript usage means, ontology
+        target matrix, and tissue array. Embedding matrices have one row per cell.
     """
     # Create unshuffled dataloader from training dataset
     dataloader = DataLoader(dataset, batch_size, shuffle=False)
@@ -3911,18 +4140,17 @@ def impute_data_MMVAEplus(
         batch_size: int = 256
 ) -> Tuple[AnnData, AnnData]:
     r"""
-    Given a GeneExpressionTranscriptUsageMMVAEplus, a dataset given in the format of a Tuple of two AnnData objects
-    (gene expression and transcript usage data) and as GeneExpressionTranscriptUsageDataset, impute the data using the
-    model. The function adds imputed data to the AnnData objects given and returns these edited objects as a Tuple.
+    Legacy imputation helper for older MMVAEplus modality-specific posterior and generative-model interfaces.
+    It switches the model to evaluation mode and intends to store unimodal and cross-modal reconstructions in both
+    AnnData objects. The loop expects five dataset entries, whereas GeneExpressionTranscriptUsageDataset currently
+    returns six. The current dataset and TRVI model therefore cannot be passed directly to this legacy helper.
 
-    TO DO: Add support for cross-modal imputation, add perturbation to the imputed data, and try out with TRVI
-
-    :param model: GeneExpressionTranscriptUsageMMVAEplus
-    :param adata: Tuple of two AnnData objects (gene expression and transcript usage data)
-    :param dataset: GeneExpressionTranscriptUsageDataset
-    :param batch_size: Batch size for the dataloader
-    :return: Tuple of two AnnData objects (imputed gene expression and transcript usage data)
-    :rtype: Tuple[AnnData, AnnData]
+    :param model: (object) Legacy MMVAEplus model with modality-specific variational_posterior and generative_model calls.
+    :param adata: (Tuple[AnnData, AnnData]) Gene expression and transcript usage objects in dataset cell order.
+    :param dataset: (Dataset) Legacy five-entry dataset supplying gene expression and transcript PSI inputs.
+    :param batch_size: (int) Number of cells per unshuffled batch. Default is 256.
+    :return: (Tuple[AnnData, AnnData]) Input objects with layers["imputed"] and layers["imputed_cross_modal"]
+        populated if the legacy model and dataset requirements are satisfied.
 
     Example:
     >>> model = GeneExpressionTranscriptUsageMMVAEplus()
@@ -4043,8 +4271,11 @@ def impute_data_MMVAEplus(
 
 def initialize_weights(module) -> None:
     r"""
+    Initialize Linear-layer weights in place using Kaiming normal initialization for ReLU activations.
+    Biases and other module types are left unchanged. This helper can be passed to model.apply.
 
-    :param module:
+    :param module: (torch.nn.Module) Module to inspect and initialize if it is an nn.Linear layer.
+    :return: None. Matching weight tensors are modified in place.
     """
     if isinstance(module, nn.Linear):
         nn.init.kaiming_normal_(module.weight, nonlinearity='relu')
@@ -4052,11 +4283,12 @@ def initialize_weights(module) -> None:
 
 def auxiliary_noise(latent_shape: Tuple[int, int], num_samples: int = 1) -> torch.Tensor:
     r"""
-    Sample noise from zero mean, unit variance Gaussian :math:`\epsilon \sim \mathcal{N}(0,1)` distribution.
-    Shape of the sample is determined by the batch size and the dimensionality of the latent variable
+    Sample independent standard Gaussian noise, $\epsilon \sim \mathcal{N}(0,1)$, for reparameterization.
 
-    :param latent_shape:
-    :return:
+    :param latent_shape: (Tuple[int, int]) Base shape (batch size, latent dimension).
+    :param num_samples: (int) Add a leading sample dimension only when greater than 1. Default is 1.
+    :return: (torch.Tensor) Noise with shape latent_shape when num_samples is at most 1, otherwise
+        (num_samples, *latent_shape). No model-specific device is selected by this helper.
     """
 
     if num_samples > 1:
@@ -4071,20 +4303,18 @@ def log_sum_exp(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     r"""
     To avoid numerical instabilities caused by underflow or overflow, the log sum exp trick saves the maximum value according to
 
-    ..math::
-        \begin{split}
-            \mathrm{log} \, \sum_{k=1}^K \mathrm{exp}(b_k) &= \mathrm{log} \sum_{k=1}^K (\mathrm{exp}(b_{k-1} -B) \, \mathrm{exp}(B))\\
-            &=B + \mathrm{log} \sum_{k=1}^K \mathrm{exp}(b_k -B)
-        \end{split}
+    $$
+    \begin{split}
+    \mathrm{log} \, \sum_{k=1}^K \mathrm{exp}(b_k) &= \mathrm{log} \sum_{k=1}^K (\mathrm{exp}(b_{k-1} -B) \, \mathrm{exp}(B))\\
+    &=B + \mathrm{log} \sum_{k=1}^K \mathrm{exp}(b_k -B)
+    \end{split}
+    $$
 
-    where the largest :math:`b_k` is saved as :math:`B = \mathrm{max}_{k=1}^K b_k`. Here, the implementation here is only for two summands.
+    where the largest $b_k$ is saved as $B = \mathrm{max}_{k=1}^K b_k$. Here, the implementation here is only for two summands.
 
-    :param a: First tensor
-    :param b: Second tensor
-    :return: Log sum exp of the two tensors
-    :rtype: torch.Tensor
-
-    Example:
+    :param a: (torch.Tensor) First log-value tensor.
+    :param b: (torch.Tensor) Second tensor, broadcast-compatible with a.
+    :return: (torch.Tensor) Elementwise log-sum-exp with the broadcast output shape.
 
     """
 

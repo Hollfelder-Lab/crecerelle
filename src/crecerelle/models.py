@@ -2277,7 +2277,7 @@ class ZANIDMTranscriptUsageVAE(BetaVAE):
             \log  \mathrm{ZANIDM}(\mathbf{x}^{(TU)} \rvert \boldsymbol{\alpha}, \boldsymbol{\zeta}, N) = \log \eta^{(0)}.
         $$
 
-        For case 3 ($N > 0 $ and $D-1$ zero-inflated intron counts), the set of zero-inflated subsets $\tilde{\mathcal{K}} = \{ \}$ is empty by definition. The log-likelihood is of case 3 then results in
+        For case 3 ($N > 0$ and $D-1$ zero-inflated intron counts), the set of zero-inflated subsets $\tilde{\mathcal{K}} = \{ \}$ is empty by definition. The log-likelihood is of case 3 then results in
 
         $$
             \begin{split}
@@ -2285,7 +2285,7 @@ class ZANIDMTranscriptUsageVAE(BetaVAE):
                 &+ \sum_{d=1}^{D} \eta^{(N)}_{d} \left(\mathbf{1}_0 \left(\sum_{k:k \neq d} x_{k}^{(TU)} \right) \right)) \end{split}.
         $$
 
-        For case 4 ($N > 0$ and at most $ D - 2$ zero-inflated intron counts), the  log-likelihood is then given by
+        For case 4 ($N > 0$ and at most $D - 2$ zero-inflated intron counts), the  log-likelihood is then given by
 
         $$
             \begin{split}
