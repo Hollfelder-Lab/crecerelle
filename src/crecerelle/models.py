@@ -882,21 +882,27 @@ class BetaVAE(nn.Module):
 
     def kullback_leibler_divergence(self, latent_mean: torch.Tensor, latent_var: torch.Tensor) -> torch.Tensor:
         r"""
-        Given the latent mean and the latent variance of the variational posterior,  the negative Kullback-Leibler
-        divergence (since we minimize the loss)
-        $-\mathrm{D_{KL}} (q_{\boldsymbol{\phi}_{TU}}(\mathbf{z}_n \mid \mathbf{x}_n^{(TU)}) \middle\| p(\mathbf{z}_n))$
+        Given the latent mean and the latent variance of the variational posterior,  the Kullback-Leibler
+        divergence
+        $\mathrm{D_{KL}} (q_{\boldsymbol{\phi}_{TU}}(\mathbf{z}_n \mid \mathbf{x}_n^{(TU)}) \parallel p(\mathbf{z}_n))$
         between the variational posterior
         $q_{\boldsymbol{\phi}_{TU}}(\mathbf{z}_n \mid \mathbf{x}_n^{(TU)}) = \mathcal{N} (\mathbf{z}_n \rvert \boldsymbol{\mu}_{\boldsymbol{\phi}_{TU}}( \mathbf{x}^{(TU)}_n ), \mathrm{diag}(\boldsymbol{\sigma}_{\boldsymbol{\phi}_{TU}}^2 (\mathbf{x}^{(TU)}_n ) ))$
         and the prior $p(\mathbf{z}_n) = \mathcal{N}(\mathbf{0}, \mathbf{I}_L)$ is computed. Here, both distributions are
         considered as Gaussian as in Kingma et al. 2013.
 
         $$
-            - \mathrm{D_{KL}} (q_{\boldsymbol{\phi}_{TU}}(\mathbf{z}_n \mid \mathbf{x}_n^{(TU)}) \middle\| p(\mathbf{z}_n)) = \frac{1}{2} \sum_{l=1}^L ( 1 + 2 \log (\sigma_{n,l}) - \mu^2_{n,l} - \sigma^2_{n,l} ).
+            D_{\mathrm{KL}}\left(
+            q_{\boldsymbol{\phi}_{TU}}(\mathbf{z}_n \mid \mathbf{x}_n^{(TU)})
+            \middle\| p(\mathbf{z}_n)
+            \right)
+            = \frac{1}{2}\sum_{l=1}^{L}
+            \left(\mu_{n,l}^{2} + \sigma_{n,l}^{2}
+            - 1 - 2\log(\sigma_{n,l})\right)
         $$
 
-        with $\mu_{n,l} \coloneqq (\boldsymbol{\mu}_{\boldsymbol{\phi}_{TU}}( \mathbf{x}^{(TU)}_n ))_l$ and
-        $\sigma_{n,l} \coloneqq  (\boldsymbol{\sigma}_{\boldsymbol{\phi}_{TU}} (\mathbf{x}^{(TU)}_n ))_l$ being computed
-        by the decoder.
+        with $\mu_{n,l} \mathrel{:=} (\boldsymbol{\mu}_{\boldsymbol{\phi}_{TU}}( \mathbf{x}^{(TU)}_n ))_l$ and
+        $\sigma_{n,l} \mathrel{:=}  (\boldsymbol{\sigma}_{\boldsymbol{\phi}_{TU}} (\mathbf{x}^{(TU)}_n ))_l$ being computed
+        by the encoder.
 
         :param latent_mean: (torch.Tensor) The mean vector of shape (batch size, latent_dim) of the variational posterior
         :param latent_var: (torch.Tensor) The variance vector of shape (batch size, latent_dim) of the variaitonal posterior
