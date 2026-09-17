@@ -1156,19 +1156,19 @@ class NBGeneExpressionVAE(BetaVAE):
     ) -> torch.Tensor:
         r"""
         This implementation of a Beta-VAE for gene expression data assumes a generative model with a negative binomial
-        likelihood. Thus, the log-likelihood function is derived from the negative binomial distribution $
-        \mathrm{NB}(x \rvert \mu, \theta)$ with mean $\mu > 0$ and inverse dispersion $\theta > 0$. The
-         log-likelihood function is evaluated using the given data point x (torch.Tensor) as well as the torch.Tensors
-         corresponding to the keys "Mean" and "Inverse dispersion" of the dictionary generative_model. The negative
-         binomial log-likelihood is then computed according to
+        likelihood. Thus, the log-likelihood function is derived from the negative binomial distribution
+        $\mathrm{NB}(x \rvert \mu, \theta)$ with mean $\mu > 0$ and inverse dispersion $\theta > 0$. The
+        log-likelihood function is evaluated using the given data point x (torch.Tensor) as well as the torch.Tensors
+        corresponding to the keys "Mean" and "Inverse dispersion" of the dictionary generative_model. The negative
+        binomial log-likelihood is then computed according to
 
-         $$
-            \begin{split}
-                \mathrm{log} \, \mathrm{NB}(x \rvert \mu, \theta) &= \mathrm{log} \, \Gamma(x + \theta)
+        $$
+        \begin{split}
+            \mathrm{log} \, \mathrm{NB}(x \rvert \mu, \theta) &= \mathrm{log} \, \Gamma(x + \theta)
                 - \mathrm{log} \, \Gamma(x + 1) - \mathrm{log} \, \Gamma(\theta) \\
                 &\quad + \theta(\mathrm{log}(\theta + \epsilon) - \mathrm{log} \,(\theta + \mu + \epsilon)) \\
                 &\quad + x (\mathrm{log} (\mu + \epsilon) - \mathrm{log} \,(\theta + \mu + \epsilon))
-            \end{split}
+        \end{split}
         $$
 
         where $\epsilon = 1e-8$ is included for the purpose of numerical stability. The function returns the
@@ -1905,8 +1905,9 @@ class ZIDMTranscriptUsageVAE(BetaVAE):
         each batch. For the case $\mathbf{x} = \mathbf{0}$, the number of trials is set to
 
         $$
-            \overline{N}^{(\mathcal{B})} = \ceil*{\frac{1}{M}{\sum_{n \in \mathcal{B}} (N_{n} + 1)}}
+            \overline{N}^{(\mathcal{B})}= \left \lceil \frac{1}{M}\sum_{n \in \mathcal{B}}(N_n + 1) \right\rceil
         $$
+
         which is the average of number trials for each intron group in the batch where the minimum is set to 1.
         This ensures the zero-inflation model is still a valid probability mass function. The function returns the
         log-likelihood as a torch.Tensor.
@@ -2964,8 +2965,10 @@ class TRVI(nn.Module):
         $\mathbf{x}_n = \{\mathbf{x}_n^{(GE)},\mathbf{x}_n^{(TU)} \}$ the full variational posterior is obtained by
 
         $$
+        \begin{split}
             q_{\boldsymbol{\Phi}} \left( \mathbf{z}_n, \{\mathbf{w}_n^{(m)}\}_{m\in\mathcal M} \mid\mathbf{x}_n \right) &= \left( \sum_{m\in\mathcal M} \pi_{\boldsymbol{\phi}^{\pi}}^{(m)}(\mathbf{x}_n)\, q_{\boldsymbol{\phi}^{\mathbf z}_m} \left( \mathbf{z}_n\mid\mathbf{x}_n^{(m)} \right) \right) \\
             &\quad \prod_{m\in\mathcal M} q_{\boldsymbol{\phi}^{\mathbf w}_m} \left( \mathbf{w}_n^{(m)} \mid\mathbf{x}_n^{(m)} \right)
+        \end{split}
         $$
 
         where
@@ -3204,14 +3207,21 @@ class TRVI(nn.Module):
             modality: int
     ) -> torch.Tensor:
         r"""
-        Given the mixture of experts variational posterior, and the modality of the sampled unimodal shared latent
-        variable, compute the "pseudo" Kullback-Leibler divergence (KLD) as
+        Compute the sample-wise log-density difference between the shared mixture posterior and the standard Gaussian
+        prior, using shared latent samples from the selected modality. The returned quantity is
 
-        ..math::
-            \mathbb{E}_{\begin{matrix} \mathbf{z} \sim q_{\boldsymbol{\phi}^{\mathbf{z}}_m}(\mathbf{z} \rvert
-            \mathbf{x}_m) \end{matrix}} \left[\log \frac{p(\mathbf{z})}{\sum_{k=1}^2 \pi_k(\mathbf{x}_k)
-            q_{\boldsymbol{\phi}_k^{\mathbf{z}}}(\mathbf{z} \rvert \mathbf{x}_k)} \right]
+        $$
+        \log q_{\mathrm{mix}}(\mathbf{z}) - \log p(\mathbf{z}).
+        $$
 
+        The function does not average over samples or apply a KL weight. Individual values need not be non-negative.
+
+        :param variational_posterior_dict: (Dict[str, Dict[str, torch.Tensor]]) Posterior dictionary containing both
+            modalities' shared means and variances, the selected modality's shared sample, and learned mixture weights
+            when modality weighting is enabled. Otherwise, equal weights are used.
+        :param modality: (int) Source of the shared sample: 1 for gene expression or 2 for transcript usage.
+        :return: pseudo_kld (torch.Tensor) Mixture log density minus prior log density, summed over latent coordinates.
+            The output retains the sample and batch dimensions of the supplied shared sample.
         """
         # Check the modality is either 1 or 2
         if modality not in [1, 2]:
@@ -3394,6 +3404,7 @@ class TRVI(nn.Module):
         and the prior on the private latent variable. The negative ELBO for an input data point is then yielded by
 
         $$
+        \begin{split}
             \mathcal{L}(\boldsymbol{\Phi}, \boldsymbol{\Theta}; \mathbf{x}) &\geq \sum_{m=1}^2 \pi_m(\mathbf{x}_m) (\mathbb{E}_{\begin{matrix}
             \mathbf{z} \sim q_{\boldsymbol{\phi^{\mathbf{z}}_m}}(\mathbf{z} \rvert \mathbf{x}_m) \\
             \mathbf{w}_m \sim q_{\boldsymbol{\phi}^{\mathbf{w}}_m}(\mathbf{w}_m \rvert \mathbf{x}_m)
@@ -3406,6 +3417,7 @@ class TRVI(nn.Module):
             &\quad+ \mathbb{E}_{\begin{matrix}
             \mathbf{z} \sim q_{\boldsymbol{\phi}^{\mathbf{z}}_m}(\mathbf{z} \rvert \mathbf{x}_m)
             \end{matrix}} \left[\log \frac{p(\mathbf{z})}{\sum_{k=1}^2 \pi_k(\mathbf{x}_k) q_{\boldsymbol{\phi}_k^{\mathbf{z}}}(\mathbf{z} \rvert \mathbf{x}_k)} \right] )
+        \end{split}
         $$
 
         where $\mathbf{x} = \{\mathbf{x}_1, \mathbf{x}_2\}$ is the input data consisting of the gene expression
