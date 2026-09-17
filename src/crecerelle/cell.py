@@ -1,3 +1,15 @@
+r"""
+Cell-type vocabularies and annotation mappings used by Crecerelle.
+
+This module contains ordered cell-type labels for Tabula Muris and
+mouse cortex BICCN data, together with tissue, organ-system,
+abbreviation, and lineage mappings.
+
+Cell-type vocabulary order determines class indices when labels are
+encoded by enumeration. Preserve this order when using trained
+classifiers.
+"""
+
 TABULA_MURIS_CELL_TYPES = 'B cell', 'Bergmann glial cell', 'Brush cell of epithelium proper of large intestine', \
                           'CD4-positive, alpha-beta T cell', 'CD8-positive, alpha-beta T cell', 'DN4 thymocyte', \
                           'Kupffer cell', 'NK cell', 'T cell', 'adventitial cell', 'aortic endothelial cell', \
@@ -34,6 +46,14 @@ TABULA_MURIS_CELL_TYPES = 'B cell', 'Bergmann glial cell', 'Brush cell of epithe
                           'smooth muscle cell of the pulmonary artery', 'smooth muscle cell of trachea', \
                           'stromal cell', 'thymocyte', 'type I pneumocyte', 'type II pneumocyte', \
                           'valve cell', 'vein endothelial cell', 'ventricular myocyte'
+
+r"""
+Ordered tuple of 117 Tabula Muris cell-type labels.
+
+The position of each label defines its zero-based class index when
+constructing classification targets. Training and inference must use
+the same label order.
+"""
 
 TABULA_MURIS_TISSUE_CELL_DICTIONARY = {
     'Lung': ['B cell','CD4-positive, alpha-beta T cell','CD8-positive, alpha-beta T cell','NK cell','adventitial cell',
@@ -131,7 +151,22 @@ TABULA_MURIS_TISSUE_CELL_DICTIONARY = {
     ]
 }
 
+r"""
+Dictionary mapping 23 tissue labels to lists of associated cell types.
+
+Callers should provide an appropriate fallback when looking up
+an unknown tissue label.
+"""
+
 MOUSE_CORTEX_BICCN_CELL_TYPES = 'L2slash3_IT', 'L6b', 'L5_IT', 'Pvalb', 'Sst', 'Vip', 'Lamp5', 'L6_IT', 'L6_CT', 'L5slash6_NP', 'Sncg'
+
+r"""
+Ordered tuple of 11 mouse cortex BICCN cell-type labels.
+
+The position of each label defines its zero-based class index when
+constructing classification targets. Training and inference must use
+the same label order.
+"""
 
 TABULA_MURIS_TISSUE_ORGAN_SYSTEM_DICT = {
     "Aorta": "Cardiorespiratory",
@@ -158,6 +193,13 @@ TABULA_MURIS_TISSUE_ORGAN_SYSTEM_DICT = {
     "Tongue": "Musculoskeletal",
     "Trachea": "Cardiorespiratory"
 }
+
+r"""
+Dictionary mapping 23 tissue labels to the project’s organ-system groupings.
+
+Callers should provide an appropriate fallback when looking up
+an unknown tissue label.
+"""
 
 TABULA_MURIS_CELL_TYPE_ABBREVIATION_DICT = {
     "adventitial cell": "adventitial cell",
@@ -243,6 +285,13 @@ TABULA_MURIS_CELL_TYPE_ABBREVIATION_DICT = {
     "vein endothelial cell": "EC (vein)"
 }
 
+r"""
+Display labels or abbreviations for selected cell types; does not cover the full vocabulary.
+
+Missing cell types are not included in this mapping. Callers should
+provide an appropriate fallback when looking up an unknown label.
+"""
+
 TABULA_MURIS_CELL_TYPE_LINEAGE_DICT = {
     "hematopoietic stem cell": "Hematopoietic Stem",
     "late pro-B cell": "B Cell",
@@ -300,3 +349,10 @@ TABULA_MURIS_CELL_TYPE_LINEAGE_DICT = {
     "oligodendrocyte precursor cell": "Neural & Glial",
     "oligodendrocyte": "Neural & Glial",
 }
+
+r"""
+Lineage groupings for selected cell types; does not cover the full vocabulary.
+
+Missing cell types are not included in this mapping. Callers should
+provide an appropriate fallback when looking up an unknown label.
+"""

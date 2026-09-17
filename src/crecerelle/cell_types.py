@@ -1,3 +1,10 @@
+r"""
+Tabula Muris cell-type labels provided as a list.
+
+The vocabulary currently contains the same 117 labels, in the same
+order, as TABULA_MURIS_CELL_TYPES in crecerelle.cell.
+"""
+
 TABULA_MURIS_CELL_ONTOLOGY = [
     'B cell', 'Bergmann glial cell',
     'Brush cell of epithelium proper of large intestine',
@@ -53,3 +60,14 @@ TABULA_MURIS_CELL_ONTOLOGY = [
     'type I pneumocyte', 'type II pneumocyte', 'valve cell',
     'vein endothelial cell', 'ventricular myocyte'
 ]
+
+r"""
+Ordered list of 117 Tabula Muris cell-type names.
+
+This is a label vocabulary, not a formal ontology containing term
+identifiers or relationships. Its ordering can be used to construct
+integer class labels and one-hot targets.
+
+The list is defined independently of TABULA_MURIS_CELL_TYPES in
+crecerelle.cell; changes are not automatically synchronized.
+"""
