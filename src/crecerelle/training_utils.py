@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import pdb
 import time
 
 import numpy as np
@@ -7,14 +6,12 @@ from typing import Tuple, Dict, List, Optional
 import torch
 import torch.nn as nn
 
-from anndata import AnnData
-
 import os
 
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch import device
+from torch.optim.lr_scheduler import LRScheduler
 
 from .models import BetaVAE, TRVI, LogisticRegressionClassifier
 import matplotlib.pyplot as plt
@@ -30,7 +27,8 @@ def plot_loss(
     r"""
     Given a list of epoch losses, the evolution of the loss is plotted over the epochs
 
-    :param epoch_train_loss_list: list, comprising the loss of each epoch
+    :param epoch_train_loss_list: list, comprising the training loss of each epoch
+    :param epoch_val_loss_list: list, comprising the validation loss of each epoch
     :param loss_type: str, the name of the applied loss function e.g. log evidence, Variational ELBO
     :param dataset_name: str, name of dataset
     :param model_name: str, name of model
@@ -60,11 +58,12 @@ def plot_loss(
 
 def auxiliary_noise(latent_shape: Tuple[int, int], num_samples: int = 1) -> torch.Tensor:
     r"""
-    Sample noise from zero mean, unit variance Gaussian :math:`\epsilon \sim \mathcal{N}(0,1)` distribution.
-    Shape of the sample is determined by the batch size and the dimensionality of the latent variable
+    Sample independent standard Gaussian noise, $\epsilon\sim\mathcal{N}(0,1)$, for reparameterization.
 
-    :param latent_shape:
-    :return:
+    :param latent_shape: (Tuple[int, int]) Base shape (batch size, latent dimension).
+    :param num_samples: (int) A leading sample dimension is added only when this value is greater than 1.
+    :return: (torch.Tensor) Noise of shape latent_shape or (num_samples, *latent_shape). Move it to the model device
+        before use.
     """
 
     if num_samples > 1:
@@ -80,11 +79,14 @@ def random_dataset_split(
         dataset_ratio: np.ndarray = np.array([0.8, 0.1, 0.1])
 ) -> Tuple[Dataset, Dataset, Dataset, Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     r"""
-    Given a PyTorch dataset and a dataset ratio of (% training, % validation, % test), a set of random indices is
-    created to then split the dataset into a training, validation, and test set
+    Randomly split observations into training, validation, and test subsets.
+    Validation and test sizes are rounded up; training receives the remainder. Ratios must leave a nonnegative
+    training size. Indices are sorted within each partition. Reproducibility follows the PyTorch random state.
 
-    :param dataset:
-    :param dataset_ratio:
+    :param dataset: (Dataset) Dataset to partition.
+    :param dataset_ratio: (np.ndarray) Three fractions in training/validation/test order. Validation and test fractions
+        determine the rounded sizes; the first fraction is not directly used. Default is [0.8, 0.1, 0.1].
+    :return: (tuple) Training Subset, validation Subset, test Subset, and a tuple of their original NumPy index arrays.
     """
 
     # Convert ratio into sample sizes
@@ -116,13 +118,17 @@ def random_multiple_dataset_split(
         dataset_ratio: np.ndarray = np.array([0.8, 0.1, 0.1])
 ) -> Tuple[Dict[str, Dict[str, Dataset]], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     r"""
-    Given a tuple of PyTorch datasets and a dataset ratio of (% training, % validation, % test), a set of random indices is
-    created to then split each dataset with the same random indices into a training, validation, and test set
+    Randomly split observations into training, validation, and test subsets.
+    Validation and test sizes are rounded up; training receives the remainder. Ratios must leave a nonnegative
+    training size. Indices are sorted within each partition. Reproducibility follows the PyTorch random state.
+    The same indices are applied to every selected dataset, preserving alignment across modalities.
 
-    :param datasets:
-    :param num_datasets:
-    :param dataset_ratio:
-    :return:
+    :param datasets: (Tuple[Dataset, ...]) Aligned datasets with identical observation counts.
+    :param num_datasets: (int) Number of leading datasets to split; must not exceed the number supplied.
+    :param dataset_ratio: (np.ndarray) Three fractions in training/validation/test order. Validation and test fractions determine
+        the rounded sizes; the first fraction is not directly used. Default is [0.8, 0.1, 0.1].
+    :return: (tuple) Dataset dictionary and original training/validation/test index arrays. The dictionary
+        uses "Dataset 1", "Dataset 2", etc., each containing "Training", "Validation", and "Test" Subsets.
     """
     # Check all datasets have same number of data points
     dataset_size = len(datasets[0])
@@ -168,14 +174,16 @@ def train_VAE_one_epoch(
         count_data_included: bool = True
 ) -> Tuple[float, float, float]:
     r"""
-    Given the training data loader, train the VAE one epoch and report the batch and the loss during each iteration.
-    The last loss is returned.
+    Train a unimodal VAE for one epoch by minimizing its returned negative ELBO. Batches contain counts, levels,
+    ontology, and tissue. Fresh Gaussian noise is sampled for each batch, and gradient norms are clipped to 1.0. Epoch
+    metrics are batch-size-weighted averages over observations.
 
-    :param model:
-    :param optimizer:
-    :param train_loader:
-    :param count_data_included:
-    :return:
+    :param model: (torch.nn.Module) Model updated in place. Its parameters must already be on the training device.
+    :param optimizer: (Adam) Optimizer bound to the model parameters; its state is updated during training.
+    :param train_loader: (DataLoader) Nonempty loader yielding the batch layout described above.
+    :param count_data_included: (bool) If True, pass (counts, levels) to the model; otherwise pass only levels.
+        Each loader batch must still contain counts, levels, ontology, and tissue, in that order.
+    :return: (Tuple[float, float, float]) Mean negative ELBO, negative log-likelihood, and KL divergence, in that order.
     """
 
     model.train()
@@ -267,25 +275,23 @@ def train_MMVAEplus_one_epoch(
         device: str = "cuda"
 ) -> tuple[float, float, float, float, float, float, float]:
     r"""
-    Given a dataloader containing the training dataset, the optimiser, and a model, train TRVI one epoch.
+    Train TRVI for one epoch with paired gene expression and transcript usage data. Batches contain GE counts, GE
+    levels, TU counts, TU levels, ontology, and tissue. Four Gaussian noise tensors are drawn for the unimodal
+    posteriors and auxiliary private distributions. The returned negative objective is minimized, gradient norms are
+    clipped to 1.0, and a non-finite loss raises FloatingPointError.
 
-    :param model: TRVI
-    :param optimizer: torch.optim.Adam
-    :param train_loader: torch.utils.data.DataLoader
-    :param beta_kl_warmup_epoch: list of float, the beta values for KL warm-up for the current epoch for both modalities
-    :param temp_epoch: float, the temperature value for modality weight annealing for the current epoch
-    :param num_samples: int, number of noise samples to draw for Monte Carlo estimation
-    :param device: selected torch.device either "cpu" or "cuda"
-    :return: float, the average loss of the epoch
-
-    Returns per-sample averages for:
-        - total loss / negative ELBO
-        - modality 1 ELBO/loss
-        - modality 2 ELBO/loss
-        - modality 1 NLL
-        - modality 2 NLL
-        - modality 1 KLD
-        - modality 2 KLD
+    :param model: (torch.nn.Module) Model updated in place. Its parameters must already be on the training device.
+    :param optimizer: (Adam) Optimizer bound to the model parameters; its state is updated during training.
+    :param train_loader: (DataLoader) Nonempty loader yielding the batch layout described above.
+    :param beta_kl_warmup_epoch: (List[float] | None) KL weights for gene expression and transcript usage. None uses
+        [1.0, 1.0].
+    :param temp_epoch: (float) Value passed as temp to TRVI.forward; the current model uses it for modality-weight
+        regularization.
+    :param num_samples: (int) Number of Gaussian noise samples. Values greater than 1 add a leading sample dimension;
+        supported shapes depend on the selected model and decoder.
+    :param device: (str) Device used for data and noise tensors; must match the model device.
+    :return: (tuple[float, ...]) Observation-weighted means of the combined negative objective, GE negative objective,
+        TU negative objective, GE NLL, TU NLL, GE pseudo-KL, and TU pseudo-KL, in that order.
     """
 
     model.train()
@@ -457,7 +463,15 @@ def train_vae_embedding_cell_type_classifier_one_epoch(
         loss_fn: nn.CrossEntropyLoss
 ) -> float:
     r"""
+    Train a classifier for one epoch, updating the model and optimizer in place. Batches contain an embedding matrix,
+    class targets, and tissue labels. The epoch loss is an unweighted mean of batch losses, including any smaller final
+    batch.
 
+    :param model: (torch.nn.Module) Model updated in place. Its parameters must already be on the training device.
+    :param optimizer: (Adam) Optimizer bound to the model parameters; its state is updated during training.
+    :param train_loader: (DataLoader) Nonempty loader yielding the batch layout described above.
+    :param loss_fn: (torch.nn.Module) Scalar loss accepting model logits and the corresponding targets.
+    :return: (float) Mean scalar loss across training batches.
     """
     # Set model to training mode
     model.train()
@@ -509,7 +523,18 @@ def train_classifier_one_epoch(
         loss_fn: nn.CrossEntropyLoss
 ) -> float:
     r"""
+    Train a classifier for one epoch, updating the model and optimizer in place. Batches contain five embedding
+    matrices, class targets, and tissue labels, as returned by EmbeddingCellTypeDataset. The epoch loss is an unweighted
+    mean of batch losses, including any smaller final batch.
 
+    :param model: (torch.nn.Module) Model updated in place. Its parameters must already be on the training device.
+    :param optimizer: (Adam) Optimizer bound to the model parameters; its state is updated during training.
+    :param train_loader: (DataLoader) Nonempty loader yielding the batch layout described above.
+    :param embedding_indices: (Sequence[int]) Select from private GE (0), private TU (1), shared GE (2), shared TU (3),
+        and joint shared (4). Use one index for the normal classification path: multiple selections are concatenated
+        along the batch dimension by the current implementation, without repeating targets.
+    :param loss_fn: (torch.nn.Module) Scalar loss accepting model logits and the corresponding targets.
+    :return: (float) Mean scalar loss across training batches.
     """
     # Set model to training mode
     model.train()
@@ -565,6 +590,17 @@ def train_marker_gene_classifier_one_epoch(
         train_loader: DataLoader,
         loss_fn: nn.BCEWithLogitsLoss
 ) -> float:
+    r"""
+    Train a classifier for one epoch, updating the model and optimizer in place. Batches contain marker-expression
+    vectors and binary float targets. Targets are reshaped to (batch size, 1), so the model must produce one logit per
+    cell. The epoch loss is an unweighted mean of batch losses, including any smaller final batch.
+
+    :param model: (torch.nn.Module) Model updated in place. Its parameters must already be on the training device.
+    :param optimizer: (Adam) Optimizer bound to the model parameters; its state is updated during training.
+    :param train_loader: (DataLoader) Nonempty loader yielding the batch layout described above.
+    :param loss_fn: (torch.nn.Module) Scalar loss accepting model logits and the corresponding targets.
+    :return: (float) Mean scalar loss across training batches.
+    """
     # Set model to training mode
     model.train()
 
@@ -611,7 +647,7 @@ def train_VAE(
         model: BetaVAE,
         optimizer: Adam,
         dataloaders: Tuple[DataLoader, DataLoader],
-        lr_scheduler: torch.optim.lr_scheduler,
+        lr_scheduler: LRScheduler,
         num_epochs: int,
         model_name: str,
         dataset_name: str,
@@ -620,14 +656,24 @@ def train_VAE(
         patience: int = 10
 ) -> BetaVAE:
     r"""
-    Train a BetaVAE using train/validation dataloaders.
+    Train and validate a unimodal VAE with early stopping and optional learning-rate scheduling. Training and validation
+    metrics are weighted by batch size. Each new best checkpoint replaces the previous best checkpoint created by this
+    run. Checkpoints are written beneath ./models/ and a PNG loss plot beneath ./figures/tabulaMuris/. These directories
+    must exist. The model ends in evaluation mode; best checkpoint weights are not reloaded.
 
-    Fixes:
-        - validation loss is averaged per sample, not per batch
-        - ReduceLROnPlateau receives a Python float
-        - best_val_loss is kept as a Python float
-        - best_epoch is not reset every epoch
-        - previous best checkpoint can actually be removed
+    :param model: (torch.nn.Module) Model updated in place. Its parameters must already be on the training device.
+    :param optimizer: (Adam) Optimizer bound to the model parameters; its state is updated during training.
+    :param dataloaders: (Tuple[DataLoader, DataLoader]) Nonempty training and validation loaders, in that order.
+    :param lr_scheduler: (LRScheduler | None) Optional scheduler. ReduceLROnPlateau receives the validation loss;
+        other schedulers are stepped once per epoch without an argument.
+    :param num_epochs: (int) Maximum number of training epochs.
+    :param model_name: (str) Model identifier used in checkpoint and loss-figure filenames.
+    :param dataset_name: (str) Dataset identifier used in checkpoint and loss-figure filenames.
+    :param loss_type: (str) Label used in the loss plot; VAE objectives are supplied by the model.
+    :param count_data_included: (bool) If True, pass (counts, levels) to the model; otherwise pass only levels.
+        Each loader batch must still contain counts, levels, ontology, and tissue, in that order.
+    :param patience: (int) Number of consecutive epochs without validation improvement before stopping.
+    :return: (BetaVAE) The supplied model with weights from the last executed epoch, not necessarily the best epoch.
     """
 
     train_loader, val_loader = dataloaders
@@ -778,7 +824,7 @@ def train_MMVAEplus(
         model: TRVI,
         optimizer: Adam,
         dataloaders: Tuple[DataLoader, DataLoader],
-        lr_scheduler: torch.optim.lr_scheduler,
+        lr_scheduler: LRScheduler,
         num_epochs: int,
         num_epochs_kl_warmup: int,
         num_epochs_temp_annealing: int,
@@ -791,35 +837,31 @@ def train_MMVAEplus(
         min_delta: float = 0.0
 ) -> TRVI:
     r"""
-    Given TRVI, an optimizer, a tuple of training and validation dataloader,
-    a learning rate scheduler, the model is trained for num_epochs epochs. The trained model is returned. Also,
-    the loss is plotted and saved as a figure. The training stops if the validation loss does not improve for a number
-    of epochs defined by patience.
+    Train and validate TRVI with KL warm-up, modality-weight scheduling, and early stopping. The model must expose a
+    weighting_encoder, which is frozen during KL warm-up. Both training and validation metrics are weighted by batch
+    size. Each new best checkpoint replaces this run's previous best checkpoint. Checkpoints are written beneath
+    ./models/ and a PNG loss plot beneath ./figures/tabulaMuris/. These directories must exist. The model ends in
+    evaluation mode; best checkpoint weights are not reloaded.
 
-    :param model: GeneExpressionTranscriptUsageMMVAEplus
-    :param optimizer: torch.optim.Adam
-    :param dataloaders: torch.utils.data.DataLoader
-    :param lr_scheduler: torch.optim.lr_scheduler
-    :param num_epochs: int
-    :param num_epochs_kl_warmup: int
-    :param num_epochs_temp_annealing: int
-    :param model_name: str
-    :param dataset_name: str
-    :param loss_type: str
-    :param patience: int, number of epochs without improvement before stopping
-    :param num_samples: int
-    :param device: either "cuda" or "cpu"
-    :param min_delta: float, the minimum change in the monitored quantity to qualify as an improvement
-    :return: TRVI
-
-    The training helper `train_MMVAEplus_one_epoch` is assumed to return
-    per-sample averages.
-
-    Validation is also computed as a per-sample average, not as an
-    unweighted average over batches.
-
-    Assumes that the model returns a negative ELBO / loss-like quantity
-    called `elbo` that should be minimized.
+    :param model: (torch.nn.Module) Model updated in place. Its parameters must already be on the training device.
+    :param optimizer: (Adam) Optimizer bound to the model parameters; its state is updated during training.
+    :param dataloaders: (Tuple[DataLoader, DataLoader]) Nonempty training and validation loaders, in that order.
+    :param lr_scheduler: (LRScheduler | None) Optional scheduler. ReduceLROnPlateau receives the validation loss;
+        other schedulers are stepped once per epoch without an argument.
+    :param num_epochs: (int) Maximum number of training epochs.
+    :param num_epochs_kl_warmup: (int) Number of epochs in the linear schedule from zero to the initial unimodal beta
+        values. The weighting encoder is frozen during this interval; zero disables the warm-up schedule.
+    :param num_epochs_temp_annealing: (int) Number of epochs after KL warm-up over which temp increases to model.temp.
+        Zero applies the target value immediately after warm-up.
+    :param model_name: (str) Model identifier used in checkpoint and loss-figure filenames.
+    :param dataset_name: (str) Dataset identifier used in checkpoint and loss-figure filenames.
+    :param loss_type: (str) Label used in the loss plot; VAE objectives are supplied by the model.
+    :param patience: (int) Number of consecutive epochs without validation improvement before stopping.
+    :param num_samples: (int) Number of Gaussian noise samples. Values greater than 1 add a leading sample dimension;
+        supported shapes depend on the selected model and decoder.
+    :param device: (str) Device used for data and noise tensors; must match the model device.
+    :param min_delta: (float) Required reduction below the best validation loss to count as an improvement.
+    :return: (TRVI) The supplied model with weights and schedule settings from the last executed epoch.
     """
 
     train_loader, val_loader = dataloaders
@@ -1118,6 +1160,23 @@ def train_vae_embedding_cell_type_classifier(
         loss_type: str = "Cross Entropy",
         patience: int = 10,
 ) -> None:
+    r"""
+    Train a classifier with validation-based early stopping. Batches contain embeddings, class targets, and tissue. Loss
+    histories use unweighted means of batch losses. Every validation improvement saves a checkpoint; previous
+    checkpoints from this run are retained. Checkpoints are written beneath ./models/ and a PNG loss plot beneath
+    ./figures/tabulaMuris/. These directories must exist. The model ends in evaluation mode; best checkpoint weights are
+    not reloaded.
+
+    :param model: (torch.nn.Module) Model updated in place. Its parameters must already be on the training device.
+    :param optimizer: (Adam) Optimizer bound to the model parameters; its state is updated during training.
+    :param dataloaders: (Tuple[DataLoader, DataLoader]) Nonempty training and validation loaders, in that order.
+    :param num_epochs: (int) Maximum number of training epochs.
+    :param model_name: (str) Model identifier used in checkpoint and loss-figure filenames.
+    :param dataset_name: (str) Dataset identifier used in checkpoint and loss-figure filenames.
+    :param loss_type: (str) Only "Cross Entropy" is supported.
+    :param patience: (int) Number of consecutive epochs without validation improvement before stopping.
+    :return: None. The supplied model and optimizer are updated in place.
+    """
 
     train_loader, val_loader = dataloaders
     best_val_loss = 100_000_000.
@@ -1154,13 +1213,13 @@ def train_vae_embedding_cell_type_classifier(
                 logits = model.forward(input_batch)
                 val_loss = loss_fn(logits, target_batch) # not necessary to take .mean()
 
-                running_val_loss += val_loss
+                running_val_loss += val_loss.item()
 
         # avg_val_loss = running_val_loss / len(val_loader.dataset) # len(val_loader)
         avg_val_loss = running_val_loss / len(val_loader)
         print(f"LOSS training {train_loss} validation {avg_val_loss}")
         epoch_train_loss_list.append(train_loss)
-        epoch_val_loss_list.append(avg_val_loss.item())
+        epoch_val_loss_list.append(avg_val_loss)
 
         # Track best performance, and save the model and training checkpoint
         if avg_val_loss < best_val_loss:
@@ -1201,6 +1260,26 @@ def train_classifier(
         loss_type: str = "Cross Entropy",
         patience: int = 10,
 ) -> None:
+    r"""
+    Train a classifier with validation-based early stopping. Batches contain five embeddings, class targets, and tissue.
+    Loss histories use unweighted means of batch losses. Every validation improvement saves a checkpoint; previous
+    checkpoints from this run are retained. Checkpoints are written beneath ./models/ and a PNG loss plot beneath
+    ./figures/tabulaMuris/. These directories must exist. The model ends in evaluation mode; best checkpoint weights are
+    not reloaded.
+
+    :param model: (torch.nn.Module) Model updated in place. Its parameters must already be on the training device.
+    :param optimizer: (Adam) Optimizer bound to the model parameters; its state is updated during training.
+    :param dataloaders: (Tuple[DataLoader, DataLoader]) Nonempty training and validation loaders, in that order.
+    :param embedding_indices: (Sequence[int]) Select from private GE (0), private TU (1), shared GE (2), shared TU (3),
+        and joint shared (4). Use one index for the normal classification path: multiple selections are concatenated
+        along the batch dimension by the current implementation, without repeating targets.
+    :param num_epochs: (int) Maximum number of training epochs.
+    :param model_name: (str) Model identifier used in checkpoint and loss-figure filenames.
+    :param dataset_name: (str) Dataset identifier used in checkpoint and loss-figure filenames.
+    :param loss_type: (str) Only "Cross Entropy" is supported.
+    :param patience: (int) Number of consecutive epochs without validation improvement before stopping.
+    :return: None. The supplied model and optimizer are updated in place.
+    """
 
     train_loader, val_loader = dataloaders
     best_val_loss = 100_000_000.
@@ -1244,13 +1323,13 @@ def train_classifier(
                 logits = model.forward(input_batch)
                 val_loss = loss_fn(logits, target_batch) # not necessary to take .mean()
 
-                running_val_loss += val_loss
+                running_val_loss += val_loss.item()
 
         # avg_val_loss = running_val_loss / len(val_loader.dataset) # len(val_loader)
         avg_val_loss = running_val_loss / len(val_loader)
         print(f"LOSS training {train_loss} validation {avg_val_loss}")
         epoch_train_loss_list.append(train_loss)
-        epoch_val_loss_list.append(avg_val_loss.item())
+        epoch_val_loss_list.append(avg_val_loss)
 
         # Track best performance, and save the model and training checkpoint
         if avg_val_loss < best_val_loss:
@@ -1290,7 +1369,23 @@ def train_marker_gene_classifier(
         loss_type: str = "Binary Cross Entropy",
         patience: int = 10
 ) -> None:
+    r"""
+    Train a classifier with validation-based early stopping. Batches contain marker-expression vectors and binary
+    targets; the model must output one logit per cell. Loss histories use unweighted means of batch losses. Every
+    validation improvement saves a checkpoint; previous checkpoints from this run are retained. Checkpoints are written
+    beneath ./models/ and a PNG loss plot beneath ./figures/tabulaMuris/. These directories must exist. The model ends
+    in evaluation mode; best checkpoint weights are not reloaded.
 
+    :param model: (torch.nn.Module) Model updated in place. Its parameters must already be on the training device.
+    :param optimizer: (Adam) Optimizer bound to the model parameters; its state is updated during training.
+    :param dataloaders: (Tuple[DataLoader, DataLoader]) Nonempty training and validation loaders, in that order.
+    :param num_epochs: (int) Maximum number of training epochs.
+    :param model_name: (str) Model identifier used in checkpoint and loss-figure filenames.
+    :param dataset_name: (str) Dataset identifier used in checkpoint and loss-figure filenames.
+    :param loss_type: (str) Only "Binary Cross Entropy" is supported.
+    :param patience: (int) Number of consecutive epochs without validation improvement before stopping.
+    :return: None. The supplied model and optimizer are updated in place.
+    """
     train_loader, val_loader = dataloaders
     best_val_loss = 100_000_000.
     epoch_train_loss_list = []
@@ -1325,13 +1420,13 @@ def train_marker_gene_classifier(
 
                 val_loss = loss_fn(logits, target_batch)
 
-                running_val_loss += val_loss
+                running_val_loss += val_loss.item()
 
         # avg_val_loss = running_val_loss / len(val_loader.dataset) # len(val_loader)
         avg_val_loss = running_val_loss / len(val_loader)
         print(f"LOSS training {train_loss} validation {avg_val_loss}")
         epoch_train_loss_list.append(train_loss)
-        epoch_val_loss_list.append(avg_val_loss.item())
+        epoch_val_loss_list.append(avg_val_loss)
 
         # Track best performance, and save the model and training checkpoint
         if avg_val_loss < best_val_loss:
@@ -1373,16 +1468,19 @@ def save_model_checkpoint(
         **kwargs
 ) -> None:
     r"""
-    Creates checkpoint / saves a model
+    Save model and optimizer state plus loss histories to a PyTorch checkpoint.
+    The path is ./models/{dataset_name}_{model_name}_epochs_{epoch}_checkpoint.pth. The directory must exist;
+    a file with the same name is overwritten.
 
-    :param model_name: str, name of the model
-    :param dataset_name: str
-    :param epoch: int, last epoch of training
-    :param model: TranscriptUsageVAE, any kind of trained model
-    :param optimizer: Adam, optimizer used for training
-    :param epoch_train_loss_list: list, the training losses of the model
-    :param epoch_val_loss_list: list, the validation losses of the model
-    :return: None
+    :param model_name: (str) Model identifier used in checkpoint and loss-figure filenames.
+    :param dataset_name: (str) Dataset identifier used in checkpoint and loss-figure filenames.
+    :param epoch: (str) Epoch identifier as a string, used in the filename and stored in the checkpoint.
+    :param model: (torch.nn.Module) Model whose state_dict is saved.
+    :param optimizer: (Adam) Optimizer bound to the model parameters; its state is updated during training.
+    :param epoch_train_loss_list: (list) Training-loss history to store under train_loss.
+    :param epoch_val_loss_list: (list) Validation-loss history to store under val_loss.
+    :param kwargs: (dict) Extra checkpoint entries, such as NLL and KL histories. Duplicate keys override standard entries.
+    :return: None. Writes the checkpoint file.
     """
 
     checkpoint = {

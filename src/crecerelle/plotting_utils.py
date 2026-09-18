@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-import pdb
-
 import matplotlib
 import matplotlib.cm as cm
 import pandas as pd
@@ -12,7 +10,6 @@ from importlib import resources
 import matplotlib.gridspec as gridspec
 from matplotlib_venn import venn2 # Not installed in PyCharm atm
 import matplotlib.lines as mlines
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 from dataclasses import dataclass
 from functools import lru_cache
@@ -21,7 +18,7 @@ from pathlib import Path
 from types import ModuleType
 import warnings
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 
 import matplotlib.patches as mpatches
 import networkx as nx
@@ -30,9 +27,7 @@ import matplotlib.colorbar as mcolorbar
 from matplotlib.lines import Line2D
 from sklearn.decomposition import PCA
 
-
 import os
-import itertools
 
 import anndata as ad
 import scanpy as sc
@@ -40,7 +35,7 @@ import upsetplot
 from anndata import AnnData
 from umap import UMAP
 import scib
-from upsetplot import plot, from_contents
+from upsetplot import plot
 
 import re
 
@@ -50,6 +45,7 @@ from scipy.spatial.distance import pdist, squareform
 
 import seaborn as sns
 import matplotlib.colors as mcolors
+from matplotlib.axes import Axes
 
 from .utils import filter_min_cells_per_feature, filter_min_cells_per_intron_group, cell_type_classification_trvi_dataframe
 
@@ -62,9 +58,9 @@ def plot_customized_UMAP_coordinates(
         font_size: int = 16
 ) -> None:
     r"""
-    Customises the UMAP coordinates of the given axes by removing ticks and adding arrows and labels
+    Customizes the UMAP coordinates of the given axes by removing ticks and adding arrows and labels
 
-    :param axes: matplotlib.axes.Axes, the axes to be customised
+    :param axes: matplotlib.axes.Axes, the axes to be customized
     :param skip_axes: List of int, the indices of the axes to be skipped
     :param x_bottom: float, the x coordinate of the bottom left corner of the arrow
     :param y_bottom: float, the y coordinate of the bottom left corner of the arrow
@@ -133,6 +129,15 @@ def plot_customized_legend(
         tissues: List[str],
         colormap: str = 'tab10'
 ) -> None:
+    r"""
+    Draw a tissue legend on an existing axis using a reversed ten-color lookup.
+    The axis is hidden and its line artists are removed after the legend is created. Use a dedicated legend axis.
+
+    :param ax: (matplotlib.axes.Axes) Existing axis on which to draw or apply formatting.
+    :param tissues: (List[str]) Labels to display in the legend, in the supplied order.
+    :param colormap: (str) Matplotlib colormap sampled into ten colors for the legend.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
+    """
 
     cmap_colors = plt.cm.get_cmap(colormap, 10)
 
@@ -189,6 +194,15 @@ def plot_random_seed_comparison_VAE(
     :param eval_metric: str, the reconstruction evaluation metric used (e.g. "nll", "rmse")
     :param display_box_plot: bool, whether to display a box plot of the reconstruction evaluation metric
     :param save_fig: bool, whether to save the figure
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `dataset_name` | `'default'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     # Max values (outliers) for each seed
     max_values = eval_metric_df.max(axis=0).to_numpy()
@@ -320,14 +334,34 @@ def plot_random_seed_comparison_trvi(
         adata_tuple: Tuple[AnnData, AnnData],
         observation_models: List[str],
         list_of_random_seeds: List[int],
-        eval_metric_dfs: Tuple[pd.DataFrame],
+        eval_metric_dfs: Tuple[pd.DataFrame, pd.DataFrame],
         eval_metric: str,
         display_weights: bool =False,
         save_fig: bool = True,
         **kwargs
 ):
     r"""
-    Given a tuple of two Anndata objects (gene expression and transcript usage data), a list of random seeds, and a Tuple of two dataframes (gene expression and transcript usage) containing the evaluation metric for each seed, plot comparison of reconstruction evaluation metric (e.g. "nll", "rmse") across different random seeds for both modalities.
+    Given a tuple of two Anndata objects (gene expression and transcript usage data), a list of random seeds, and a
+    Tuple of two dataframes (gene expression and transcript usage) containing the evaluation metric for each seed, plot
+    comparison of reconstruction evaluation metric (e.g. "nll", "rmse") across different random seeds for both
+    modalities.
+
+    :param adata_tuple: (Tuple[AnnData, AnnData]) Gene expression and transcript usage inference results, in that order.
+    :param observation_models: (List[str]) Gene expression and transcript usage observation-model names, in that order.
+    :param list_of_random_seeds: (List[int]) Model seeds to compare, in plotting order.
+    :param eval_metric_dfs: (Tuple[pd.DataFrame, pd.DataFrame]) Evaluation tables for gene expression and transcript usage, in that order.
+    :param eval_metric: (str) Reconstruction metric name used for the comparison, such as nll or rmse.
+    :param display_weights: (bool) Requested weight-display flag; currently unused by this function.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `dataset_name` | `'default'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     adata_1 = adata_tuple[0]
     adata_2 = adata_tuple[1]
@@ -435,7 +469,7 @@ def plot_cell_embeddings_umaps_trvi(
         adata_objects: Tuple[ad.AnnData, ad.AnnData],
         tissue_list: List[str] | None,
         cell_list: List[str] | None,
-        likelihood_keys: List[str] = ["ZINB", "ZIDM"],
+        likelihood_keys: List[str] | None = None,#= ["ZINB", "ZIDM"],
         dataset_name: str = "tabulaMuris",
         seed: int = 0,
         min_cells: int = 50, # minimum number of cells for cell type to be included otherwise filtered out
@@ -447,15 +481,19 @@ def plot_cell_embeddings_umaps_trvi(
     modality-relevance weights. The UMAPs are colored by cell type and the bar plot shows the mean modality-relevance
     weight for each cell type. The figure panel is saved if save_fig is True.
 
-    :param adata_objects:
-    :param tissue_list:
-    :param cell_list:
-    :param likelihood_keys:
-    :param dataset_name:
-    :param seed:
-    :param min_cells:
-    :param save_fig:
+    :param adata_objects: (Tuple[AnnData, ...]) Annotated objects in gene expression then transcript usage order; see the function description for any shared object.
+    :param tissue_list: (List[str] | None) Tissues to plot separately; None plots the selected cells without tissue-specific rows.
+    :param cell_list: (List[str] | None) Cell types to retain; None includes all available cell types.
+    :param likelihood_keys: (List[str] | None) Observation-model prefixes identifying stored inference outputs in modality order.
+    :param dataset_name: (str) Dataset identifier used to select output directories and filenames.
+    :param seed: (int | None) Selected model or UMAP random seed, as used by the plot.
+    :param min_cells: (int) Minimum cell count used to retain a cell type; nonpositive values disable this filtering.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
+    if likelihood_keys is None:
+        likelihood_keys = ["ZINB", "ZIDM"]
+
     import matplotlib.lines as mlines  # Needed for custom legend
 
     adata_1, adata_2 = adata_objects
@@ -703,9 +741,18 @@ def plot_zanidm_cases(
     as bar chart with the option of a log-scale y-acis. The second plot shows the relative results as a stacked bar chart.
     The figure panel is saved if save_fig is True.
 
-    :param num_cases_dict:
-    :param log_scale:
-    :param save_fig:
+    :param num_cases_dict: (Dict[str, int]) Observation counts under case_1, case_2, case_3, and case_4.
+    :param log_scale: (bool) Whether to use a logarithmic scale for the absolute case-count plot.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `dataset_name` | `'default'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     # Create a dataframe from the dictionary
     df = pd.DataFrame(list(num_cases_dict.items()), columns=['Category', 'Value'])
@@ -807,10 +854,20 @@ def plot_comparison_tuvi_zanidm_zidm(
     compares the average epoch time for both models and the second one the total training time. The second row displays
     the distance matrices of both models annotated with the corresponding annotations given.
 
-    :param distance_matrices:
-    :param cluster_annotations:
-    :param computation_times:
-    :param save_fig:
+    :param distance_matrices: (sequence[np.ndarray]) Square pairwise distance matrices in the order of the compared models or facets.
+    :param cluster_annotations: (array-like) Cluster labels aligned with distance-matrix rows and columns.
+    :param computation_times: (dict) Entries ZANIDM and ZIDM, each containing Average time per epoch and Total training time.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `average_embeddings` | `True` |
+    | `dataset_name` | `'default'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     fig, axes = plt.subplots(2, 2, figsize=(14, 12))
 
@@ -921,6 +978,49 @@ def plot_umap_and_distance_matrix(
         Row 1: annotation UMAPs
         Row 2: modality-relevance-weight UMAPs
         Row 3: heatmaps
+
+    :param adata_1: (AnnData | None) Gene expression data for the selected facets; None when that modality is not used.
+    :param adata_2: (AnnData | None) Transcript usage data for the selected facets; None when that modality is not used.
+    :param cell_embeddings_keys: (List[str]) Keys identifying the stored embeddings to visualize.
+    :param transcriptomic_facet_keys: (List[str]) Transcriptomic facet labels corresponding to the embedding and distance-matrix inputs.
+    :param relevance_weight_keys: (List[str] | None) Observation columns with modality-relevance weights; None omits these panels.
+    :param distance_matrices: (sequence[np.ndarray]) Square pairwise distance matrices in the order of the compared models or facets.
+    :param cluster_annotations: (array-like) Cluster labels aligned with distance-matrix rows and columns.
+    :param umap_color_display_key: (str) Observation annotation used to color UMAP points.
+    :param model_type: (str) Model family selecting the facet-specific plotting layout and data source.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `random_state` | `0` |
+    | `panel_label_fontsize` | `11` |
+    | `panel_label_y` | `1.06` |
+    | `facet_title_fontsize` | `8` |
+    | `umap_axis_fontsize` | `7` |
+    | `legend_fontsize` | `6.5` |
+    | `legend_title_fontsize` | `7` |
+    | `heatmap_bullet_fontsize` | `5` |
+    | `colorbar_label_fontsize` | `7` |
+    | `colorbar_tick_fontsize` | `6` |
+    | `boundary_linewidth` | `0.8` |
+    | `relevance_vmin` | `0.0` |
+    | `relevance_vmax` | `1.0` |
+    | `relevance_color_map` | `'viridis'` |
+    | `relevance_colorbar_gap_mm` | `1.5` |
+    | `relevance_colorbar_width_mm` | `1.5` |
+    | `figure_width_mm` | `180.0` |
+    | `max_figure_height_mm` | `247.0` |
+    | `legend_height_mm` | `12.0` |
+    | `figure_height_mm` | `computed from the data or layout` |
+    | `legend_ncols` | `5` |
+    | `dataset_name` | `'default'` |
+    | `file_suffix` | `'pdf'` |
+    | `tax_level` | `'default'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
     random_state = kwargs.get(
@@ -929,7 +1029,7 @@ def plot_umap_and_distance_matrix(
     )
 
     # ------------------------------------------------------------------
-    # Typography for a 180 mm-wide Nature Methods figure
+    # Typography for a 180 mm-wide panel figure
     # ------------------------------------------------------------------
     panel_label_fontsize = kwargs.get(
         "panel_label_fontsize",
@@ -1075,7 +1175,7 @@ def plot_umap_and_distance_matrix(
         )
 
     # ------------------------------------------------------------------
-    # Nature Methods figure dimensions
+    # Panel figure dimensions
     # ------------------------------------------------------------------
     mm_per_inch = 25.4
 
@@ -1553,7 +1653,7 @@ def plot_umap_and_distance_matrix(
                 f"'{transcriptomic_facet}'."
             )
 
-        if umap_color_display_key not in adata.obs:
+        if umap_color_display_key not in adata.obs.columns:
             raise KeyError(
                 f"UMAP colour key '{umap_color_display_key}' is not "
                 f"present in adata.obs for facet "
@@ -1565,7 +1665,7 @@ def plot_umap_and_distance_matrix(
                 relevance_weight_keys[i]
             )
 
-            if relevance_weight_key not in adata.obs:
+            if relevance_weight_key not in adata.obs.columns:
                 raise KeyError(
                     f"Relevance-weight key "
                     f"'{relevance_weight_key}' is not present "
@@ -1888,45 +1988,54 @@ def plot_scvi_tuvi_cell_embedding_comparison(
     :param evaluation_df: dataframe of evaluation dataframe
     :param color_annotation: annotation color
     :param likelihood_1: name of gene expression cell embedding observation model
-    :param save_fig: save figure
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
     :param kwargs: keyword arguments
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `dataset_name` | `None` |
+    | `file_suffix` | `'pdf'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artist
     """
     # Unpack the Tuple of AnnData objects
-    adata_GE, adata_TU = adata_objects
+    adata_ge, adata_tu = adata_objects
 
-    # Assert if .obsm[likelihood_GE + '_X_umap'] is present in adata_GE
-    assert (likelihood_1 + '_X_umap') in adata_GE.obsm, f"The key '{likelihood_1 + '_X_umap'}' is not present in adata_GE.obsm. Please compute the UMAP coordinates for the gene expression cell embeddings using the '{likelihood_1}' observation model and add them to adata_GE.obsm['{likelihood_1}_X_umap'] before calling this function."
+    # Assert if .obsm[likelihood_GE + '_X_umap'] is present in adata_ge
+    assert (likelihood_1 + '_X_umap') in adata_ge.obsm, f"The key '{likelihood_1 + '_X_umap'}' is not present in adata_ge.obsm. Please compute the UMAP coordinates for the gene expression cell embeddings using the '{likelihood_1}' observation model and add them to adata_ge.obsm['{likelihood_1}_X_umap'] before calling this function."
 
-    # Assert if .obsm["DM_X_umap"], obsm["ZANIDM_X_umap"], and obsm["ZIDM_X_umap"] are present in adata_TU
-    assert "DM_X_umap" in adata_TU.obsm, "The key 'DM_X_umap' is not present in adata_TU.obsm. Please compute the UMAP coordinates for the transcript usage cell embeddings using the 'DM' observation model and add them to adata_TU.obsm['DM_X_umap'] before calling this function."
-    assert "ZANIDM_X_umap" in adata_TU.obsm, "The key 'ZANIDM_X_umap' is not present in adata_TU.obsm. Please compute the UMAP coordinates for the transcript usage cell embeddings using the 'ZANIDM' observation model and add them to adata_TU.obsm['ZANIDM_X_umap'] before calling this function."
-    assert "ZIDM_X_umap" in adata_TU.obsm, "The key 'ZIDM_X_umap' is not present in adata_TU.obsm. Please compute the UMAP coordinates for the transcript usage cell embeddings using the 'ZIDM' observation model and add them to adata_TU.obsm['ZIDM_X_umap'] before calling this function."
+    # Assert if .obsm["DM_X_umap"], obsm["ZANIDM_X_umap"], and obsm["ZIDM_X_umap"] are present in adata_tu
+    assert "DM_X_umap" in adata_tu.obsm, "The key 'DM_X_umap' is not present in adata_tu.obsm. Please compute the UMAP coordinates for the transcript usage cell embeddings using the 'DM' observation model and add them to adata_tu.obsm['DM_X_umap'] before calling this function."
+    assert "ZANIDM_X_umap" in adata_tu.obsm, "The key 'ZANIDM_X_umap' is not present in adata_tu.obsm. Please compute the UMAP coordinates for the transcript usage cell embeddings using the 'ZANIDM' observation model and add them to adata_tu.obsm['ZANIDM_X_umap'] before calling this function."
+    assert "ZIDM_X_umap" in adata_tu.obsm, "The key 'ZIDM_X_umap' is not present in adata_tu.obsm. Please compute the UMAP coordinates for the transcript usage cell embeddings using the 'ZIDM' observation model and add them to adata_tu.obsm['ZIDM_X_umap'] before calling this function."
 
-    # Assert if color_annotation is present in adata_GE.obs and adata_TU.obs
-    assert color_annotation in adata_GE.obs, f"The key '{color_annotation}' is not present in adata_GE.obs. Please ensure that the annotation used for coloring the UMAP plots is present in adata_GE.obs['{color_annotation}'] before calling this function."
-    assert color_annotation in adata_TU.obs, f"The key '{color_annotation}' is not present in adata_TU.obs. Please ensure that the annotation used for coloring the UMAP plots is present in adata_TU.obs['{color_annotation}'] before calling this function."
+    # Assert if color_annotation is present in adata_ge.obs and adata_tu.obs
+    assert color_annotation in adata_ge.obs.columns, f"The key '{color_annotation}' is not present in adata_ge.obs.columns Please ensure that the annotation used for coloring the UMAP plots is present in adata_ge.obs['{color_annotation}'] before calling this function."
+    assert color_annotation in adata_tu.obs.columns, f"The key '{color_annotation}' is not present in adata_tu.obs.columns Please ensure that the annotation used for coloring the UMAP plots is present in adata_tu.obs['{color_annotation}'] before calling this function."
 
     fig = plt.figure(figsize=(13, 16), dpi=300)
     gs = gridspec.GridSpec(4, 3, figure=fig)
 
-    # UMAP of atlas using scGEVI-ZINB
+    # UMAP of atlas using scVI-ZINB
     ax00 = fig.add_subplot(gs[0, 0])
-    adata_GE.obsm['X_umap'] = adata_GE.obsm[likelihood_1 + '_X_umap'].copy()
-    sc.pl.umap(adata_GE, color=color_annotation, legend_loc=None, frameon=False, show=False, ax=ax00)
-    del adata_GE.obsm['X_umap']
+    adata_ge.obsm['X_umap'] = adata_ge.obsm[likelihood_1 + '_X_umap'].copy()
+    sc.pl.umap(adata_ge, color=color_annotation, legend_loc=None, frameon=False, show=False, ax=ax00)
+    del adata_ge.obsm['X_umap']
     ax00.set_title('scVI-ZINB')
     ax00.set_title('a', loc='left', fontsize=20, fontweight='bold')
     plot_customized_UMAP_coordinates(ax00, length=1.0)
 
     # UMAP of atlas using tuVI-DM
     ax01 = fig.add_subplot(gs[0, 1])
-    adata_TU.obsm['X_umap'] = adata_TU.obsm['DM_X_umap'].copy()
-    sc.pl.umap(adata_TU, color=color_annotation, frameon=False, show=False, ax=ax01)
+    adata_tu.obsm['X_umap'] = adata_tu.obsm['DM_X_umap'].copy()
+    sc.pl.umap(adata_tu, color=color_annotation, frameon=False, show=False, ax=ax01)
     leg = ax01.get_legend()
     if leg:
         plt.setp(leg.get_texts(), fontsize=12)  # or a number like 8
         plt.setp(leg.get_title(), fontsize=12)
-    del adata_TU.obsm['X_umap']
+    del adata_tu.obsm['X_umap']
     ax01.set_title('tuVI-DM')
     ax01.set_title('b', loc='left', fontsize=20, fontweight='bold')
     plot_customized_UMAP_coordinates(ax01, length=1.0)
@@ -1951,18 +2060,18 @@ def plot_scvi_tuvi_cell_embedding_comparison(
 
     # UMAP of atlas using tuVI-ZANIDM
     ax30 = fig.add_subplot(gs[3, 0])
-    adata_TU.obsm['X_umap'] = adata_TU.obsm['ZANIDM_X_umap'].copy()
-    sc.pl.umap(adata_TU, color=color_annotation, legend_loc=None, frameon=False, show=False, ax=ax30)
-    del adata_TU.obsm['X_umap']
+    adata_tu.obsm['X_umap'] = adata_tu.obsm['ZANIDM_X_umap'].copy()
+    sc.pl.umap(adata_tu, color=color_annotation, legend_loc=None, frameon=False, show=False, ax=ax30)
+    del adata_tu.obsm['X_umap']
     ax30.set_title('tuVI-ZANIDM')
     ax30.set_title('f', loc='left', fontsize=20, fontweight='bold')
     plot_customized_UMAP_coordinates(ax30, length=1.0)
 
     # UMAP of atlas using tuVI-ZIDM
     ax31 = fig.add_subplot(gs[3, 1])
-    adata_TU.obsm['X_umap'] = adata_TU.obsm['ZIDM_X_umap'].copy()
-    sc.pl.umap(adata_TU, color=color_annotation, legend_loc=None, frameon=False, show=False, ax=ax31)
-    del adata_TU.obsm['X_umap']
+    adata_tu.obsm['X_umap'] = adata_tu.obsm['ZIDM_X_umap'].copy()
+    sc.pl.umap(adata_tu, color=color_annotation, legend_loc=None, frameon=False, show=False, ax=ax31)
+    del adata_tu.obsm['X_umap']
     ax31.set_title('tuVI-ZIDM')
     ax31.set_title('g', loc='left', fontsize=20, fontweight='bold')
     plot_customized_UMAP_coordinates(ax31, length=1.0)
@@ -2021,6 +2130,45 @@ def plot_deg_analysis(
     :param kwargs: additional keyword arguments for figure customization, including:
         - figsize: tuple, the size of the figure (width, height) in inches
         - dpi: int, the resolution of the figure in dots per inch
+
+    Keyword settings read by this function (names are case-sensitive):
+    | Option | Default |
+    | --- | --- |
+    | `cell_type_key` | `None` |
+    | `panel_label_fontsize` | `11` |
+    | `panel_label_y` | `1.04` |
+    | `facet_title_fontsize` | `8` |
+    | `umap_axis_fontsize` | `7` |
+    | `legend_fontsize` | `6.5` |
+    | `dotplot_tick_fontsize` | `6` |
+    | `dotplot_label_fontsize` | `7` |
+    | `colorbar_label_fontsize` | `7` |
+    | `colorbar_tick_fontsize` | `6` |
+    | `cell_type_legend_marker_size` | `36.0` |
+    | `cell_type_legend_labelspacing` | `0.65` |
+    | `cell_type_legend_handletextpad` | `0.5` |
+    | `dotplot_largest_dot` | `60` |
+    | `dotplot_smallest_dot` | `0` |
+    | `dotplot_edge_linewidth` | `0.35` |
+    | `expression_color_map` | `None` |
+    | `expression_colorbar_label` | `'Expression'` |
+    | `colorbar_gap_mm` | `1.5` |
+    | `colorbar_width_mm` | `1.5` |
+    | `inter_umap_gap_mm` | `12.0` |
+    | `expression_vmin` | `computed from the data or layout` |
+    | `expression_vmax` | `computed from the data or layout` |
+    | `figure_width_mm` | `180.0` |
+    | `max_figure_height_mm` | `247.0` |
+    | `figure_height_mm` | `computed from the data or layout` |
+    | `top_to_dotplot_gap_mm` | `5.0` |
+    | `dotplot_to_umap_gap_mm` | `14.0` |
+    | `deg_umap_row_gap_mm` | `8.0` |
+    | `dotplot_height_mm` | `45.0` |
+    | `panel_c_y_offset_mm` | `1.0` |
+    | `dataset_name` | `'default'` |
+    | `file_suffix` | `'pdf'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
     import os
@@ -2028,7 +2176,7 @@ def plot_deg_analysis(
     # ------------------------------------------------------------------
     # Validate inputs
     # ------------------------------------------------------------------
-    if "leiden" not in adata.obs:
+    if "leiden" not in adata.obs.columns:
         raise KeyError(
             "The key 'leiden' is not present in adata.obs. Perform "
             "Leiden clustering before calling this function."
@@ -2048,7 +2196,7 @@ def plot_deg_analysis(
             "cell_type_key='...'."
         )
 
-    if cell_type_key not in adata.obs:
+    if cell_type_key not in adata.obs.columns:
         raise KeyError(
             f"The cell-type key '{cell_type_key}' is not present "
             "in adata.obs."
@@ -2228,7 +2376,7 @@ def plot_deg_analysis(
     )
 
     # ------------------------------------------------------------------
-    # Nature Methods figure dimensions
+    # Panel figure dimensions
     # ------------------------------------------------------------------
     mm_per_inch = 25.4
 
@@ -2770,10 +2918,10 @@ def plot_deg_analysis(
             length=2
         )
 
-        current_ax.xaxis.label.set_size(
+        current_ax.xaxis.label.set_fontsize(
             dotplot_label_fontsize
         )
-        current_ax.yaxis.label.set_size(
+        current_ax.yaxis.label.set_fontsize(
             dotplot_label_fontsize
         )
         current_ax.title.set_fontsize(
@@ -3001,7 +3149,8 @@ def rename_isoform_helper(intron_names: np.ndarray) -> np.ndarray:
     Rename isoforms to "gene_name isoform_number" format, where isoform_number is assigned based on the order of
     appearance of the intron names for each gene.
 
-    :param intron_names:
+    :param intron_names: (np.ndarray) Intron identifiers from which gene names and sequential isoform labels are derived.
+    :return: (np.ndarray) Gene-specific isoform display names in the original feature order.
     """
     # Dictionary to store: { gene_name: { location_string: isoform_number } }
     gene_isoform_tracker = {}
@@ -3049,7 +3198,8 @@ def dsg_dotplot_helper(
     :param adata: AnnData object containing the results of the DSG analysis for a specific tissue and cluster groups
     :param cluster_groups: List of str, the Leiden cluster groups for which the mean psi values and number of cells will be calculated for the top DSGs
     :param num_intron_group_markers: int, the number of top DSGs to be considered for each cluster group specified in cluster_groups. Default is 3.
-    :return:
+    :param kwargs: (dict) Additional options; see the function description for supported settings.
+    :return: (tuple) Mean PSI matrix, valid-cell count matrix, and selected intron identifiers.
     """
 
     assert "rank_introns_groups" in adata.uns, (
@@ -3170,6 +3320,53 @@ def plot_dsg_analysis(
         - expression_colorbar_label: str, the label for the expression colorbar (default: None, which uses no label)
         - colorbar_tick_fontsize: int, the font size for the colorbar tick labels (default: 6)
         - colorbar_label_fontsize: int, the font
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `psi_layer` | `'PSI_raw'` |
+    | `cell_type_key` | `None` |
+    | `num_intron_group_markers` | `3` |
+    | `panel_label_fontsize` | `11` |
+    | `panel_label_y` | `1.04` |
+    | `facet_title_fontsize` | `8` |
+    | `umap_axis_fontsize` | `7` |
+    | `legend_fontsize` | `6.5` |
+    | `dotplot_tick_fontsize` | `6` |
+    | `dotplot_label_fontsize` | `7` |
+    | `colorbar_label_fontsize` | `7` |
+    | `colorbar_tick_fontsize` | `6` |
+    | `cell_type_legend_marker_size` | `36.0` |
+    | `cell_type_legend_labelspacing` | `0.65` |
+    | `cell_type_legend_handletextpad` | `0.5` |
+    | `dotplot_row_spacing` | `1.0` |
+    | `dotplot_largest_dot` | `60.0` |
+    | `dotplot_edge_linewidth` | `0.35` |
+    | `dotplot_alpha` | `0.9` |
+    | `dotplot_color_map` | `'Reds'` |
+    | `psi_vmin` | `0.0` |
+    | `psi_vmax` | `1.0` |
+    | `psi_color_map` | `None` |
+    | `psi_colorbar_label` | `'PSI'` |
+    | `colorbar_gap_mm` | `1.5` |
+    | `colorbar_width_mm` | `1.5` |
+    | `inter_umap_gap_mm` | `12.0` |
+    | `figure_width_mm` | `180.0` |
+    | `max_figure_height_mm` | `247.0` |
+    | `top_to_dotplot_gap_mm` | `5.0` |
+    | `dotplot_height_mm` | `45.0` |
+    | `dotplot_to_umap_gap_mm` | `22.0` |
+    | `outer_vertical_padding_mm` | `8.0` |
+    | `figure_height_mm` | `computed from the data or layout` |
+    | `dotplot_width_ratio` | `4.0` |
+    | `dotplot_legend_wspace` | `0.12` |
+    | `size_legend_values` | `[50, 100, 250, 500]` |
+    | `dotplot_colorbar_ticks` | `[0.0, 0.5, 1.0]` |
+    | `dataset_name` | `None` |
+    | `file_suffix` | `'pdf'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
     import os
@@ -3178,7 +3375,7 @@ def plot_dsg_analysis(
     # ------------------------------------------------------------------
     # Validate inputs
     # ------------------------------------------------------------------
-    if "leiden" not in adata.obs:
+    if "leiden" not in adata.obs.columns:
         raise KeyError(
             "The key 'leiden' is not present in adata.obs. Perform "
             "Leiden clustering before calling this function."
@@ -3212,7 +3409,7 @@ def plot_dsg_analysis(
             "cell_type_key='...'."
         )
 
-    if cell_type_key not in adata.obs:
+    if cell_type_key not in adata.obs.columns:
         raise KeyError(
             f"The cell-type key '{cell_type_key}' is not present "
             "in adata.obs."
@@ -3504,7 +3701,7 @@ def plot_dsg_analysis(
         )
 
     # ------------------------------------------------------------------
-    # Nature Methods figure width
+    # Panel figure width
     # ------------------------------------------------------------------
     mm_per_inch = 25.4
 
@@ -4108,10 +4305,10 @@ def plot_dsg_analysis(
         pad=1
     )
 
-    dotplot_ax.xaxis.label.set_size(
+    dotplot_ax.xaxis.label.set_fontsize(
         dotplot_label_fontsize
     )
-    dotplot_ax.yaxis.label.set_size(
+    dotplot_ax.yaxis.label.set_fontsize(
         dotplot_label_fontsize
     )
 
@@ -4422,17 +4619,27 @@ def plot_marker_analysis_scvi_tuvi(
     The cluster_group_ids specifies the Leiden cluster group for which the top 3 DEGs and DSGs will be plotted. The
     figure is saved in the figures directory if save_fig is set to True.
 
-    :param adata_objects:
-    :param likelihoods:
-    :param cluster_group_ids:
-    :param dsg_exp_df:
-    :param dsg_psi_df:
-    :param top_degs:
-    :param top_dsgs:
-    :param dsg_gene_names:
-    :param umap_color_key_display:
-    :param taxonomy_level:
-    :param save_fig:
+    :param adata_objects: (Tuple[AnnData, ...]) Annotated objects in gene expression then transcript usage order; see the function description for any shared object.
+    :param likelihoods: (List[str] | None) Gene expression and transcript usage likelihood prefixes, in that order.
+    :param cluster_group_ids: (Tuple[str, str]) Target gene expression and transcript usage clusters, in that order.
+    :param dsg_exp_df: (pd.DataFrame) Long-format expression distributions for the selected differentially spliced genes.
+    :param dsg_psi_df: (pd.DataFrame) Long-format PSI distributions for selected introns.
+    :param top_degs: (List[str]) Selected differentially expressed gene names.
+    :param top_dsgs: (List[str]) Selected differentially spliced intron/isoform identifiers.
+    :param dsg_gene_names: (List[str]) Gene labels corresponding to the selected differentially spliced features.
+    :param umap_color_key_display: (str) Observation annotation used to color UMAP points.
+    :param taxonomy_level: (str | None) Taxonomic group or tissue represented by the analysis.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `dataset_name` | `'default'` |
+    | `file_suffix` | `'pdf'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     # Unpack the Anndata objects
     adata_1, adata_2 = adata_objects
@@ -4666,7 +4873,7 @@ def plot_differential_analysis_on_umap(
     Plot a reference UMAP in the first column and the top DEGs or DSGs
     for each cluster group in the remaining columns.
 
-    The figure uses a 180 mm full-width Nature Methods layout with an
+    The figure uses a 180 mm full-width panel layout with an
     adaptive height capped at 247 mm.
 
     :param adata: AnnData object containing differential-analysis results.
@@ -4677,6 +4884,34 @@ def plot_differential_analysis_on_umap(
     :param renamed_isoforms: Optional flattened list of renamed isoforms.
     :param ref_umap_color: Key used to colour the reference UMAP.
     :param save_fig: Whether to save the figure.
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `num_entities_per_group` | `3` |
+    | `panel_label_fontsize` | `11` |
+    | `panel_label_y` | `1.05` |
+    | `entity_title_fontsize` | `7` |
+    | `umap_axis_fontsize` | `7` |
+    | `leiden_label_fontsize` | `6` |
+    | `legend_fontsize` | `6.5` |
+    | `legend_title_fontsize` | `7` |
+    | `colorbar_tick_fontsize` | `6` |
+    | `colorbar_label_fontsize` | `7` |
+    | `figure_width_mm` | `180.0` |
+    | `figure_max_height_mm` | `247.0` |
+    | `min_umap_row_height_mm` | `30.0` |
+    | `colorbar_width_factor` | `1.25` |
+    | `colorbar_gap_mm` | `1.5` |
+    | `ref_legend_ncol` | `computed from the data or layout` |
+    | `legend_height_mm` | `computed from the data or layout` |
+    | `ref_legend_title` | `computed from the data or layout` |
+    | `dataset_name` | `'default'` |
+    | `file_suffix` | `'pdf'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
     if not cluster_groups:
@@ -4733,7 +4968,7 @@ def plot_differential_analysis_on_umap(
         )
 
     # ------------------------------------------------------------------
-    # Typography for a 180 mm-wide Nature Methods figure
+    # Typography for a 180 mm-wide panel figure
     # ------------------------------------------------------------------
     panel_label_fontsize = kwargs.get(
         "panel_label_fontsize",
@@ -4773,7 +5008,7 @@ def plot_differential_analysis_on_umap(
     )
 
     # ------------------------------------------------------------------
-    # Nature Methods figure dimensions
+    # Panel figure dimensions
     # ------------------------------------------------------------------
     figure_width_mm = kwargs.get(
         "figure_width_mm",
@@ -5263,10 +5498,10 @@ def plot_differential_analysis_on_umap(
             pad=1
         )
 
-        figure_ax.xaxis.label.set_size(
+        figure_ax.xaxis.label.set_fontsize(
             colorbar_label_fontsize
         )
-        figure_ax.yaxis.label.set_size(
+        figure_ax.yaxis.label.set_fontsize(
             colorbar_label_fontsize
         )
         figure_ax.title.set_fontsize(
@@ -5346,12 +5581,12 @@ def plot_differential_analysis_on_umap(
         if hasattr(figure_ax, "set_box_aspect"):
             figure_ax.set_box_aspect(None)
 
-        figure_ax.set_position([
+        figure_ax.set_position((
             new_x0,
             colorbar_position.y0,
             new_width,
             colorbar_position.height
-        ])
+        ))
 
     # ------------------------------------------------------------------
     # Save at an exact physical width of 180 mm
@@ -5400,8 +5635,12 @@ def plot_differential_analysis_on_umap(
 
     plt.show()
 
-def format_umap_axis(ax):
-    """Keep the UMAP panel square without distorting the embedding."""
+def format_umap_axis(ax: Axes):
+    r"""
+    Keep the UMAP panel square without distorting the embedding.
+    :param ax: (matplotlib.axes.Axes) Existing axis on which to draw or apply formatting.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
+    """
     ax.set_box_aspect(1)
     ax.set_aspect("equal", adjustable="datalim")
     ax.set_anchor("C")
@@ -5440,12 +5679,64 @@ def plot_deg_and_dsg_analysis_trvi(
     legend formatting, marker sizing, and spacing used by
     plot_deg_analysis and plot_dsg_analysis.
 
-    :param adata: Tuple of two AnnData objects, the first one containing the results of the DEG analysis and the second one containing the results of the DSG analysis for a specific tissue
+    :param adata: Tuple of two AnnData objects, the first one containing the results of the DEG analysis and the second
+        one containing the results of the DSG analysis for a specific tissue
     :param tax_level: str, the name of the tissue for which the analysis was performed,
-    or None if the analysis was performed on all tissues
+        or None if the analysis was performed on all tissues
     :param model_name: str, the name of the model used for the analysis (e.g. TRVI_ZINB_ZIDM_shared, etc.)
-    :param rename_isoforms: bool, whether to rename the DSG isoforms to "gene_name isoform_number" format, where isoform_number is assigned based on the order of appearance of the intron names for each gene
+    :param rename_isoforms: bool, whether to rename the DSG isoforms to "gene_name isoform_number" format, where
+        isoform_number is assigned based on the order of appearance of the intron names for each gene
     :param save_fig: bool, whether to save the figure
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `psi_layer` | `'PSI_raw'` |
+    | `cell_type_key` | `None` |
+    | `dataset_name` | `'default'` |
+    | `panel_label_fontsize` | `11` |
+    | `panel_label_y` | `1.04` |
+    | `facet_title_fontsize` | `8` |
+    | `umap_axis_fontsize` | `7` |
+    | `legend_fontsize` | `6.5` |
+    | `dotplot_tick_fontsize` | `6` |
+    | `dotplot_label_fontsize` | `7` |
+    | `colorbar_tick_fontsize` | `6` |
+    | `cell_type_legend_marker_size` | `36.0` |
+    | `cell_type_legend_labelspacing` | `0.65` |
+    | `cell_type_legend_handletextpad` | `0.5` |
+    | `num_marker_genes` | `6` |
+    | `deg_dotplot_largest_dot` | `60.0` |
+    | `deg_dotplot_smallest_dot` | `0.0` |
+    | `deg_dotplot_edge_linewidth` | `0.35` |
+    | `num_intron_group_markers` | `3` |
+    | `dsg_dotplot_row_spacing` | `1.0` |
+    | `dsg_dotplot_largest_dot` | `60.0` |
+    | `dsg_dotplot_edge_linewidth` | `0.35` |
+    | `dsg_dotplot_alpha` | `0.9` |
+    | `dsg_dotplot_color_map` | `'Reds'` |
+    | `psi_vmin` | `0.0` |
+    | `psi_vmax` | `1.0` |
+    | `figure_width_mm` | `180.0` |
+    | `max_figure_height_mm` | `247.0` |
+    | `inter_umap_gap_mm` | `12.0` |
+    | `top_to_deg_gap_mm` | `5.0` |
+    | `deg_dotplot_height_mm` | `45.0` |
+    | `deg_to_dsg_gap_mm` | `18.0` |
+    | `dsg_dotplot_height_mm` | `45.0` |
+    | `bottom_label_space_mm` | `22.0` |
+    | `outer_vertical_padding_mm` | `8.0` |
+    | `figure_height_mm` | `computed from the data or layout` |
+    | `dsg_dotplot_width_ratio` | `4.0` |
+    | `dsg_dotplot_legend_wspace` | `0.12` |
+    | `size_legend_values` | `[50, 100, 250, 500]` |
+    | `dsg_colorbar_ticks` | `[0.0, 0.5, 1.0]` |
+    | `panel_c_y_offset_mm` | `1.0` |
+    | `file_suffix` | `'pdf'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
     import os
@@ -5467,7 +5758,7 @@ def plot_deg_and_dsg_analysis_trvi(
         ("adata[0]", adata_ge),
         ("adata[1]", adata_tu)
     ]:
-        if "leiden" not in current_adata.obs:
+        if "leiden" not in current_adata.obs.columns:
             raise KeyError(
                 f"The key 'leiden' is not present in "
                 f"{object_name}.obs."
@@ -5512,7 +5803,7 @@ def plot_deg_and_dsg_analysis_trvi(
             "cell_type_key='...'."
         )
 
-    if cell_type_key not in adata_ge.obs:
+    if cell_type_key not in adata_ge.obs.columns:
         raise KeyError(
             f"The cell-type key '{cell_type_key}' is not present "
             "in adata[0].obs."
@@ -5678,7 +5969,7 @@ def plot_deg_and_dsg_analysis_trvi(
         )
 
     # ------------------------------------------------------------------
-    # Nature Methods figure dimensions
+    # Panel figure dimensions
     # ------------------------------------------------------------------
     mm_per_inch = 25.4
 
@@ -6215,10 +6506,10 @@ def plot_deg_and_dsg_analysis_trvi(
             length=2
         )
 
-        current_ax.xaxis.label.set_size(
+        current_ax.xaxis.label.set_fontsize(
             dotplot_label_fontsize
         )
-        current_ax.yaxis.label.set_size(
+        current_ax.yaxis.label.set_fontsize(
             dotplot_label_fontsize
         )
         current_ax.title.set_fontsize(
@@ -6487,10 +6778,10 @@ def plot_deg_and_dsg_analysis_trvi(
         pad=1
     )
 
-    dsg_dotplot_ax.xaxis.label.set_size(
+    dsg_dotplot_ax.xaxis.label.set_fontsize(
         dotplot_label_fontsize
     )
-    dsg_dotplot_ax.yaxis.label.set_size(
+    dsg_dotplot_ax.yaxis.label.set_fontsize(
         dotplot_label_fontsize
     )
 
@@ -6712,31 +7003,44 @@ def plot_latent_space_benchmarking_trvi(
     UMAPs of S-GE, S-TU, and GE-TU cell embeddings as well as the bar plots of atlas and cell type specific modality-
     relevance weights.
 
-    :param adata_objects: Tuple of two AnnData objects, the first one containing the inferred cell embeddings for gene expression and the second one containing the inferred cell embeddings for transcript usage
+    :param adata_objects: Tuple of two AnnData objects, the first one containing the inferred cell embeddings for gene
+        expression and the second one containing the inferred cell embeddings for transcript usage
     :param likelihood_keys: List of str, the likelihood keys for gene expression and transcript usage
     :param evaluation_df: pd.DataFrame, the evaluation dataframe of the cell embeddings on the atlas level
     :param atlas_weight_dict: Dict of atlas weight dict
-    :param mean_weights_df: pandas dataframe of mean modality-relevance weights per cell type averaged across random seeds
-    :param relevance_weight_likelihood_key: The key of the modality-relevance weight (either display gene expression or transcript usage relevance weights)
+    :param mean_weights_df: pandas dataframe of mean modality-relevance weights per cell type averaged across random
+        seeds
+    :param relevance_weight_likelihood_key: The key of the modality-relevance weight (either display gene expression or
+        transcript usage relevance weights)
     :param seed: random seed for UMAPs
     :param random_seeds: List of random seeds
-    :param umap_color_display_key: str
-    :param sort_cell_type_key: str
-    :param save_fig: bool
+    :param umap_color_display_key: (str) Observation annotation used to color UMAP points.
+    :param sort_cell_type_key: (str) Observation column used to group or order the cell-type labels.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `file_suffix` | `'pdf'` |
+    | `dataset_name` | `'default'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
     # Unpack the AnnData objects
-    adata_GE, adata_TU = adata_objects
-    likelihood_GE, likelihood_TU = likelihood_keys
+    adata_ge, adata_tu = adata_objects
+    likelihood_ge, likelihood_tu = likelihood_keys
 
     fig = plt.figure(figsize=(13, 20), dpi=300)
     gs = gridspec.GridSpec(5, 3, figure=fig)
 
     # Unpack the results from modality-relevance weight analysis
-    total_mean_GE = atlas_weight_dict["total_mean_GE"]
-    total_std_GE = atlas_weight_dict["total_std_GE"]
-    total_mean_TU = atlas_weight_dict["total_mean_TU"]
-    total_std_TU = atlas_weight_dict["total_std_TU"]
+    total_mean_ge = atlas_weight_dict["total_mean_GE"]
+    total_std_ge = atlas_weight_dict["total_std_GE"]
+    total_mean_tu = atlas_weight_dict["total_mean_TU"]
+    total_std_tu = atlas_weight_dict["total_std_TU"]
 
     # Reset index to make cell_type_key a column for plotting
     mean_weights_df = mean_weights_df.reset_index()
@@ -6770,10 +7074,10 @@ def plot_latent_space_benchmarking_trvi(
 
     # UMAP S-GE
     ax02 = fig.add_subplot(gs[0, 2])
-    adata_GE.obsm['X_umap'] = UMAP(n_components=2, random_state=seed).fit_transform(
-        adata_GE.obsm[likelihood_GE + "_" + str(seed) + "_shared_latent_mean"])
+    adata_ge.obsm['X_umap'] = UMAP(n_components=2, random_state=seed).fit_transform(
+        adata_ge.obsm[likelihood_ge + "_" + str(seed) + "_shared_latent_mean"])
     sc.pl.umap(
-        adata_GE,
+        adata_ge,
         color=umap_color_display_key,
         frameon=False,
         show=False,
@@ -6787,24 +7091,24 @@ def plot_latent_space_benchmarking_trvi(
     if ax02.get_legend():
         ax02.get_legend().remove()
 
-    del adata_GE.obsm['X_umap']
+    del adata_ge.obsm['X_umap']
     ax02.set_title('b', loc='left', fontsize=20, fontweight='bold')
     ax02.set_title(' ', loc='center', fontsize=20)
     plot_customized_UMAP_coordinates(ax02, length=1.0)
 
     # UMAP S-TU
     ax12 = fig.add_subplot(gs[1, 2])
-    adata_TU.obsm['X_umap'] = UMAP(n_components=2, random_state=seed).fit_transform(
-        adata_TU.obsm[likelihood_TU + "_" + str(seed) + "_shared_latent_mean"])
+    adata_tu.obsm['X_umap'] = UMAP(n_components=2, random_state=seed).fit_transform(
+        adata_tu.obsm[likelihood_tu + "_" + str(seed) + "_shared_latent_mean"])
     sc.pl.umap(
-        adata_TU,
+        adata_tu,
         color=umap_color_display_key,
         legend_loc=None,
         frameon=False,
         show=False,
         ax=ax12
     )
-    del adata_TU.obsm['X_umap']
+    del adata_tu.obsm['X_umap']
     ax12.set_title('c', loc='left', fontsize=20, fontweight='bold')
     ax12.set_title(' ', loc='center', fontsize=20)
     plot_customized_UMAP_coordinates(ax12, length=1.0)
@@ -6814,10 +7118,10 @@ def plot_latent_space_benchmarking_trvi(
 
     # UMAP Joint
     ax22 = fig.add_subplot(gs[2:4, :2])
-    adata_GE.obsm['X_umap'] = UMAP(n_components=2, random_state=seed).fit_transform(
-        adata_GE.obsm[likelihood_GE + "_" + str(seed) + "_" + likelihood_TU + "_" + str(seed) + "_shared_latent_mean"])
+    adata_ge.obsm['X_umap'] = UMAP(n_components=2, random_state=seed).fit_transform(
+        adata_ge.obsm[likelihood_ge + "_" + str(seed) + "_" + likelihood_tu + "_" + str(seed) + "_shared_latent_mean"])
     sc.pl.umap(
-        adata_GE,
+        adata_ge,
         color=umap_color_display_key,
         legend_loc=None,
         frameon=False,
@@ -6825,7 +7129,7 @@ def plot_latent_space_benchmarking_trvi(
         ax=ax22
     )
 
-    del adata_GE.obsm['X_umap']
+    del adata_ge.obsm['X_umap']
     ax22.set_title('d', loc='left', fontsize=20, fontweight='bold')
     ax22.set_title(' ', loc='center', fontsize=20)
     plot_customized_UMAP_coordinates(ax22, length=1.0)
@@ -6846,8 +7150,8 @@ def plot_latent_space_benchmarking_trvi(
     ax31 = fig.add_subplot(gs[3, 2])
     ax31.bar(
         x=["GE", "TU"],
-        height=[total_mean_GE, total_mean_TU],
-        yerr=[total_std_GE, total_std_TU],
+        height=[total_mean_ge, total_mean_tu],
+        yerr=[total_std_ge, total_std_tu],
         color=colors
     )
     # Adjust yscale to 0.0 to 1.0
@@ -6968,15 +7272,30 @@ def plot_cell_embeddings_analysis_trvi(
     visualised by projecting the PSI score of the isoform on the UMAP. The figure is saved in the figures directory
     if save_fig is set to True.
 
-    :param adata_objects:
-    :param cluster_groups:
-    :param likelihood_keys:
-    :param cell_embeddings_selected:
-    :param cell_embeddings_keys:
-    :param seeds_selected:
-    :param seed:
-    :param isoforms_to_visualize:
-    :param save_fig:
+    :param adata_objects: (Tuple[AnnData, ...]) Annotated objects in gene expression then transcript usage order; see the function description for any shared object.
+    :param cluster_groups: (List[str]) Cluster labels included in the differential-analysis panels.
+    :param likelihood_keys: (List[str] | None) Observation-model prefixes identifying stored inference outputs in modality order.
+    :param cell_embeddings_selected: (List[str]) Names of the latent spaces selected for the analysis panels.
+    :param cell_embeddings_keys: (List[str]) Keys identifying the stored embeddings to visualize.
+    :param seeds_selected: (List[int]) Model seeds included in the relevance-weight comparison.
+    :param seed: (int | None) Selected model or UMAP random seed, as used by the plot.
+    :param isoforms_to_visualize: (List[str] | None) Intron identifiers to visualize; None uses the function's selected markers.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `cell_type_key` | `'cell_ontology_class'` |
+    | `dataset_name` | `'default'` |
+    | `tax_level` | `'atlas'` |
+    | `num_intron_group_markers` | `3` |
+    | `num_marker_genes` | `3` |
+    | `rename_isoforms` | `True` |
+    | `file_suffix` | `'pdf'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     adata_1 = adata_objects[0] # Gene expression
     adata_2 = adata_objects[1] # Transcript usage
@@ -6998,30 +7317,30 @@ def plot_cell_embeddings_analysis_trvi(
     adata_2.obsm["X_umap"] = UMAP(n_components=2, random_state=seed).fit_transform(
         adata_2.obsm[cell_embeddings_keys[1]])
 
-    cell_weights_across_seeds_GE = []
-    cell_weights_across_seeds_TU = []
+    cell_weights_across_seeds_ge = []
+    cell_weights_across_seeds_tu = []
 
     for seed_selected in seeds_selected:
-        cell_weights_across_seeds_GE.append(likelihood_key_1 + "_" + str(seed_selected) + "_weighting")
-        cell_weights_across_seeds_TU.append(likelihood_key_2 + "_" + str(seed_selected) + "_weighting")
+        cell_weights_across_seeds_ge.append(likelihood_key_1 + "_" + str(seed_selected) + "_weighting")
+        cell_weights_across_seeds_tu.append(likelihood_key_2 + "_" + str(seed_selected) + "_weighting")
 
     # Calculations for boxplots and violins
 
     # 1. Process GE weights
-    df_ge_subset = adata_1.obs[[cell_type_key] + cell_weights_across_seeds_GE]
+    df_ge_subset = adata_1.obs[[cell_type_key] + cell_weights_across_seeds_ge]
     df_ge_melted = df_ge_subset.melt(
         id_vars=cell_type_key,
-        value_vars=cell_weights_across_seeds_GE,
+        value_vars=cell_weights_across_seeds_ge,
         var_name='seed',
         value_name='weight'
     )
     df_ge_melted['Source'] = 'GE'  # Label for grouping
 
     # 2. Process TU weights
-    df_tu_subset = adata_2.obs[[cell_type_key] + cell_weights_across_seeds_TU]
+    df_tu_subset = adata_2.obs[[cell_type_key] + cell_weights_across_seeds_tu]
     df_tu_melted = df_tu_subset.melt(
         id_vars=cell_type_key,
-        value_vars=cell_weights_across_seeds_TU,
+        value_vars=cell_weights_across_seeds_tu,
         var_name='seed',
         value_name='weight'
     )
@@ -7068,9 +7387,9 @@ def plot_cell_embeddings_analysis_trvi(
 
     # DSG PLOT
     # Create a grid of x, y coordinates
-    X, Y = np.meshgrid(range(len(intron_names)), range(len(cluster_groups)))
-    x_coords = X.flatten()
-    #y_coords = Y.flatten()
+    x_mesh, y_mesh = np.meshgrid(range(len(intron_names)), range(len(cluster_groups)))
+    x_coords = x_mesh.flatten()
+    #y_coords = y_mesh.flatten()
 
     color_values = mean_psi_groups_introns.flatten()
     size_values = num_cells_valid_matrix.flatten()
@@ -7182,7 +7501,7 @@ def plot_cell_embeddings_analysis_trvi(
     # remove legend
     ax20.get_legend().remove()
 
-    # REMOVE X-AXIS LABELS
+    # Remove x-axis labels
     ax20.set_xticklabels([])
     ax20.set_xlabel("")
     ax20.set_ylabel("Relevance")
@@ -7247,11 +7566,11 @@ def plot_cell_embeddings_analysis_trvi(
 
     # Explicit positions within the reserved cells
     ge_cax = ge_cbar_host.inset_axes(
-        [0.15, 0.10, 0.10, 0.80]
+        (0.15, 0.10, 0.10, 0.80)
     )
 
     tu_cax = tu_cbar_host.inset_axes(
-        [0.15, 0.10, 0.10, 0.80]
+        (0.15, 0.10, 0.10, 0.80)
     )
 
     ge_cbar = fig.colorbar(
@@ -7320,7 +7639,7 @@ def plot_cell_embeddings_analysis_trvi(
     ax33 = fig.add_subplot(gs[3, 2:4]) # prev [5, :3]
     row_spacing = 0.75
 
-    y_coords = (Y * row_spacing).flatten()
+    y_coords = (y_mesh * row_spacing).flatten()
 
     psi_dotplot = ax33.scatter(
         x_coords,
@@ -7334,11 +7653,11 @@ def plot_cell_embeddings_analysis_trvi(
         vmax=1.0
     )
 
-    # X axis
+    # x axis
     ax33.set_xticks(range(len(intron_names_plot)))
     ax33.set_xticklabels(intron_names_plot, rotation=90, ha='right', fontsize=12)
 
-    # Y axis: ticks must match compressed row positions
+    # y axis: ticks must match compressed row positions
     y_tick_positions = np.arange(len(cluster_groups)) * row_spacing
     ax33.set_yticks(y_tick_positions)
     ax33.set_yticklabels(cluster_groups)
@@ -7394,7 +7713,7 @@ def plot_cell_embeddings_analysis_trvi(
 
     # Horizontal colorbar inside the same reserved legend column
     cax = legend_ax.inset_axes(
-        [0.05, 0.06, 0.90, 0.09]
+        (0.05, 0.06, 0.90, 0.09)
     )
 
     cbar = fig.colorbar(
@@ -7523,9 +7842,22 @@ def plot_deg_dsg_upsetplot(
     significantly differentially expressed genes and differentially spliced genes. The figure is saved in the figures
     directory if save_fig is set to True.
 
-    :param ranked_genes_df: pd.DataFrame, the dataframe containing the results of the differential expression analysis for a specific cluster, with a column "names" containing the gene names of the differentially expressed genes
-    :param ranked_spl_introns_df: pd.DataFrame, the dataframe containing the results of the differential splicing analysis for a specific cluster, with a column "gene_names" containing the gene names of the differentially spliced genes
+    :param ranked_genes_df: pd.DataFrame, the dataframe containing the results of the differential expression analysis
+        for a specific cluster, with a column "names" containing the gene names of the differentially expressed genes
+    :param ranked_spl_introns_df: pd.DataFrame, the dataframe containing the results of the differential splicing
+        analysis for a specific cluster, with a column "gene_names" containing the gene names of the differentially
+        spliced genes
     :param save_fig: bool, whether to save the figure
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    | Option | Default |
+    | --- | --- |
+    | `dataset_name` | `'dataset'` |
+    | `group_id_GE` | `'GE'` |
+    | `group_id_TU` | `'TU'` |
+    | `tax_level` | `'all_tissues'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
     sig_dsg_genes_group = np.unique(ranked_spl_introns_df["gene_names"].to_numpy())
@@ -7562,12 +7894,12 @@ def plot_deg_dsg_upsetplot(
 
     # Unpack kwargs for saving if present
     dataset_name = kwargs.get("dataset_name", "dataset")
-    group_id_GE = kwargs.get("group_id_GE", "GE")
-    group_id_TU = kwargs.get("group_id_TU", "TU")
+    group_id_ge = kwargs.get("group_id_GE", "GE")
+    group_id_tu = kwargs.get("group_id_TU", "TU")
     tax_level = kwargs.get("tax_level", "all_tissues")
 
     if save_fig:
-        fig_name = "./figures/"+ dataset_name +"/upsetplot_degs_" + group_id_GE + "_dsgs_" + group_id_TU + "_" + tax_level + ".png"
+        fig_name = "./figures/"+ dataset_name +"/upsetplot_degs_" + group_id_ge + "_dsgs_" + group_id_tu + "_" + tax_level + ".png"
         plt.savefig(
             fig_name,
             dpi=300)
@@ -7585,9 +7917,23 @@ def plot_deg_dsg_venn_diagramm(
     the size of the DSG set since there are less DSGs. The figure is saved in the figures directory if save_fig is set
     to True.
 
-    :param ranked_genes_df: pd.DataFrame, the dataframe containing the results of the differential expression analysis for a specific cluster,
-    :param ranked_spl_introns_df: pd.DataFrame, the dataframe containing the results of the differential splicing analysis for a specific cluster,
+    :param ranked_genes_df: pd.DataFrame, the dataframe containing the results of the differential expression analysis
+        for a specific cluster,
+    :param ranked_spl_introns_df: pd.DataFrame, the dataframe containing the results of the differential splicing
+        analysis for a specific cluster,
     :param save_fig: bool, whether to save the figure
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `dataset_name` | `'dataset'` |
+    | `group_id_GE` | `'GE'` |
+    | `group_id_TU` | `'TU'` |
+    | `tax_level` | `'all_tissues'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     # 1. Prepare sets
     set_dsg = set(ranked_spl_introns_df["gene_names"])
@@ -7648,12 +7994,12 @@ def plot_deg_dsg_venn_diagramm(
 
     # Unpack kwargs for saving if present
     dataset_name = kwargs.get("dataset_name", "dataset")
-    group_id_GE = kwargs.get("group_id_GE", "GE")
-    group_id_TU = kwargs.get("group_id_TU", "TU")
+    group_id_ge = kwargs.get("group_id_GE", "GE")
+    group_id_tu = kwargs.get("group_id_TU", "TU")
     tax_level = kwargs.get("tax_level", "all_tissues")
 
     if save_fig:
-        fig_name = "./figures/" + dataset_name + "/ven_topdegs_" + group_id_GE + "_dsgs_" + group_id_TU + "_" + tax_level + ".png"
+        fig_name = "./figures/" + dataset_name + "/ven_topdegs_" + group_id_ge + "_dsgs_" + group_id_tu + "_" + tax_level + ".png"
         plt.savefig(fig_name, dpi=300, bbox_inches='tight', pad_inches=0.1)
 
     plt.show()
@@ -7669,8 +8015,18 @@ def plot_deg_dsg_upsetplot_venn_across_taxonomy_level(
     comparisons per row.
 
     :param cluster_group_pairs: List of cluster-group pairs
-    :param taxonomy_level: Taxonomy level analysed
+    :param taxonomy_level: Taxonomy level analyzed
     :param save_fig: Whether to save the figure
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `dataset_name` | `'default'` |
+    | `file_suffix` | `'pdf'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     dataset_name = kwargs.get("dataset_name", "default")
     file_suffix = kwargs.get("file_suffix", "pdf")
@@ -7769,17 +8125,37 @@ def plot_expression_psi_distribution_violins_across_taxonomy_level(
     - Left: gene-expression violin plots.
     - Right: corresponding PSI-score violin plots.
 
-    The figure uses a 180 mm full-width Nature Methods layout with an
+    The figure uses a 180 mm full-width panel layout with an
     adaptive height capped at 247 mm.
 
-    :param distribution_exp_df_list:
-        List of DataFrames containing gene-expression distributions.
-    :param distribution_psi_df_list:
-        List of DataFrames containing PSI-score distributions.
-    :param taxonomy_level:
-        Taxonomy level or tissue represented in the figure.
-    :param save_fig:
-        Whether to save the figure.
+    :param distribution_exp_df_list: List of DataFrames containing gene-expression distributions.
+    :param distribution_psi_df_list: List of DataFrames containing PSI-score distributions.
+    :param taxonomy_level: Taxonomy level or tissue represented in the figure.
+    :param save_fig: Whether to save the figure.
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `dataset_name` | `'default'` |
+    | `panel_label_fontsize` | `11` |
+    | `panel_label_y` | `1.04` |
+    | `axis_label_fontsize` | `7` |
+    | `x_tick_fontsize` | `7` |
+    | `y_tick_fontsize` | `6` |
+    | `x_tick_rotation` | `0` |
+    | `frame_linewidth` | `0.6` |
+    | `violin_linewidth` | `0.6` |
+    | `grid_linewidth` | `0.5` |
+    | `grid_alpha` | `0.5` |
+    | `figure_width_mm` | `180.0` |
+    | `figure_max_height_mm` | `247.0` |
+    | `violin_row_height_mm` | `42.0` |
+    | `minimum_row_height_mm` | `32.0` |
+    | `file_suffix` | `'pdf'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
     if not distribution_exp_df_list:
@@ -7801,7 +8177,7 @@ def plot_expression_psi_distribution_violins_across_taxonomy_level(
     )
 
     # ------------------------------------------------------------------
-    # Typography for a 180 mm-wide Nature Methods figure
+    # Typography for a 180 mm-wide panel figure
     # ------------------------------------------------------------------
     panel_label_fontsize = kwargs.get(
         "panel_label_fontsize",
@@ -7847,7 +8223,7 @@ def plot_expression_psi_distribution_violins_across_taxonomy_level(
     )
 
     # ------------------------------------------------------------------
-    # Nature Methods figure dimensions
+    # Panel figure dimensions
     # ------------------------------------------------------------------
     mm_per_inch = 25.4
 
@@ -8231,6 +8607,8 @@ def plot_shared_and_unique_enrichment_terms_upsetplot(
     :param tissue: str, the name of the tissue for which the analysis was performed, or None if the analysis was performed on all tissues
     :param dataset_name: str, the name of the dataset (e.g. "tabulaMuris") for which the analysis was performed, used for saving the figure
     :param save_fig: bool, whether to save the figure
+    :param kwargs: (dict) Additional options; see the function description for supported settings.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
     # Each list inside the first argument represents a set "membership"
@@ -8281,7 +8659,8 @@ def plot_enrichment_term_barchart(
     :param title: Title of the plot.
     :param top_n: Number of terms to display. Use ``None`` to display every term.
     :param sources: One source (e.g. ``"GO:BP"``), several sources, or ``None`` for all.
-    :param order_by: ``"dataframe"`` preserves the input row ranking; ``"p_value"`` orders by significance; and ``"intersection_size"`` orders by gene number.
+    :param order_by: ``"dataframe"`` preserves the input row ranking; ``"p_value"`` orders by significance; and
+        ``"intersection_size"`` orders by gene number.
     :param show_rank: Prefix each y-axis label with its original 1-based dataframe rank.
     :param pvalue_scale: Color scale for p-values: ``"log"`` or ``"linear"``.
     :param pvalue_label: Label for the p-value colorbar.
@@ -8289,6 +8668,13 @@ def plot_enrichment_term_barchart(
     :param ax: matplotlib axes object
     :param kwargs: Additional keyword arguments. Can include ``p_max`` to set the maximum p-value for color scaling.
 
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `p_max` | `computed from the data or layout` |
+
+    :return: (Tuple[Figure, Axes]) Figure and axis containing the enrichment bar chart.
     """
     from matplotlib import colors, ticker
 
@@ -8423,10 +8809,19 @@ def plot_enrichment_term_set_comparison(
     enrichment terms for DSGs, while the second column shows the enrichment terms for overlapping DEGs and DSGs. The
     figure is saved in the figures directory if save_fig is set to True.
 
-    :param dataset_name: str
-    :param tax_level_list: List[str]
-    :param sources: List[str]
-    :param save_fig: bool
+    :param dataset_name: (str) Dataset identifier used to select output directories and filenames.
+    :param tax_level_list: (List[str]) Taxonomic groups or tissues included in the comparison.
+    :param sources: (str | sequence[str] | None) Enrichment source filter, such as GO:BP; None includes all sources.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `file_suffix` | `'pdf'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     fig, axes = plt.subplots(len(tax_level_list), 2, figsize=(18, 6 * len(tax_level_list)))
     for i, tax_level in enumerate(tax_level_list):
@@ -8505,9 +8900,21 @@ def plot_enrichment_term_set_comparison(
 @dataclass(frozen=True)
 class GOFigurePlotResult:
     r"""
-    Objects and tables produced by :func:`plot_functional_enrichment_bubble`. This is part of the wrapper function for
+    Container returned by plot_functional_enrichment_bubble. This is part of the wrapper for
     GO-Figure plotting https://gitlab.com/evogenlab/GO-Figure
 
+    The fields retain the supplied axis, GO-Figure representative-term coordinates and membership tables,
+    and artists needed for legends, color scaling, or saving the figure.
+
+    | Attribute | Contents |
+    | --- | --- |
+    | `ax` | Axis on which the bubbles were drawn. |
+    | `plot_df` | Representative-term coordinates and plotting values. |
+    | `cluster_members` | Membership of terms in the redundancy clusters. |
+    | `colorbar` | P-value colorbar, or None. |
+    | `size_legend` | Bubble-area legend, or None. |
+    | `term_legend` | Representative-term legend, or None. |
+    | `extra_artists` | Tuple of artists to include when saving with bbox_extra_artists. |
     """
 
     ax: Any
@@ -8521,9 +8928,11 @@ class GOFigurePlotResult:
 
 def _resolve_gofigure_script(gofigure_path: str | Path) -> Path:
     r"""
-    Resolve a GO-Figure repository path or gofigure.py path. This is part of the wrapper function for
+    Resolve a GO-Figure repository path or gofigure.py path. This is part of the wrapper for
     GO-Figure plotting https://gitlab.com/evogenlab/GO-Figure
-
+    :param gofigure_path: (str | Path) Local GO-Figure repository directory or gofigure.py path, with its data directory
+        present.
+    :return: (Path) Absolute path to gofigure.py after checking the script and data/go.obo exist.
     """
     path = Path(gofigure_path).expanduser()
     if path.is_dir():
@@ -8545,9 +8954,12 @@ def _resolve_gofigure_script(gofigure_path: str | Path) -> Path:
 @lru_cache(maxsize=4)
 def _load_gofigure(gofigure_script_string: str) -> tuple[Any, ...]:
     r"""
-    Load GO-Figure's functions and ontology resources without its CLI main. This is part of the wrapper function for
-    GO-Figure plotting https://gitlab.com/evogenlab/GO-Figure
+    Load GO-Figure's functions and ontology resources without its CLI main. This is part of the wrapper for GO-Figure
+    plotting https://gitlab.com/evogenlab/GO-Figure.
 
+    :param gofigure_script_string: (str) Path to the local gofigure.py script; used as the cache key.
+    :return: (tuple) GO-Figure API module, information-content, frequency, description, namespace, obsolete-ID,
+        alternative-ID, parent, and child dictionaries, in that order. Results are cached for up to four paths.
     """
     gofigure_script = Path(gofigure_script_string)
     code = gofigure_script.read_text(encoding="utf-8")
@@ -8649,7 +9061,8 @@ def plot_functional_enrichment_bubble(
     biological process, molecular function, and cellular component terms;
     select one with ``source``.
 
-    :params enrichment_results_df: pandas.DataFrame Enrichment results containing ``native``, ``p_value``, ``intersection_size``, and ``source`` by default.
+    :params enrichment_results_df: pandas.DataFrame Enrichment results containing ``native``, ``p_value``,
+        ``intersection_size``, and ``source`` by default.
     :params ax: Existing Matplotlib axis on which the plot is drawn.
     :params gofigure_path: Path to the cloned GO-Figure repository or its ``gofigure.py`` file.
     :params source: str the enrichment term identifier `"GO:BP"``, ``"GO:MF"``, or ``"GO:CC"``.
@@ -8664,34 +9077,31 @@ def plot_functional_enrichment_bubble(
     :params tissue_palette: str Categorical palette used for tissue colours.
     :params tissue_legend_location: str Location of the tissue legend.
     :params tissue_legend_bbox_to_anchor: tuple[float, float]
-    :params similarity_cutoff: float GO-Figure redundancy threshold. ``1.0`` only combines terms with Lin similarity exactly equal to one; ``0.5`` is GO-Figure's default.
+    :params similarity_cutoff: float GO-Figure redundancy threshold. ``1.0`` only combines terms with Lin similarity
+        exactly equal to one; ``0.5`` is GO-Figure's default.
     :params palette: str palette to use for plotting
     :params size_range: str range of size to use for plotting
     :params label_n: int | None Number of representative bubbles to number. ``None`` labels all.
-    :params description_limit: int
-    :params random_state: int
-    :params alpha: float
-    :params pvalue_label: str
-    :params add_colorbar: bool
-    :params colorbar_ax: Matplotlib axis on which the plot is drawn.
-    :params colorbar_kwargs: dict
-    :params add_size_legend: bool
-    :params size_legend_title: str
-    :params size_legend_location: str
-    :params size_legend_bbox_to_anchor: tuple[float, float]
-    :params size_legend_labelspacing: float
-    :params size_legend_handletextpad: float
-    :params add_term_legend: bool
-    :params term_legend_location: str
-    :params term_legend_bbox_to_anchor: tuple[float, float]
-    :params term_legend_columns: int
-    :params scatter_kwargs: dict[str, Any] | None
-
-    Returns
-    -------
-    GOFigurePlotResult
-        Plot data, cluster membership, supporting artists, and the supplied
-        axis. ``extra_artists`` can be passed to a later ``fig.savefig`` call.
+    :param description_limit: (int) Maximum term-description length used for legend labels.
+    :param random_state: (int | None) Random seed used for reproducible semantic-space coordinates.
+    :param alpha: (float) Bubble opacity.
+    :param pvalue_label: (str) Label displayed on the p-value colorbar.
+    :param add_colorbar: (bool) Whether to create the p-value colorbar where applicable.
+    :param colorbar_ax: Matplotlib axis on which the plot is drawn.
+    :param colorbar_kwargs: (dict | None) Additional keyword arguments passed to the colorbar creation call.
+    :param add_size_legend: (bool) Whether to draw the legend explaining bubble areas.
+    :param size_legend_title: (str) Title of the bubble-size legend.
+    :param size_legend_location: (str) Matplotlib location code for the size legend.
+    :param size_legend_bbox_to_anchor: (tuple[float, float] | None) Anchor position for the size legend, in axes coordinates.
+    :param size_legend_labelspacing: (float) Vertical spacing between size-legend entries.
+    :param size_legend_handletextpad: (float) Padding between size markers and their labels.
+    :param add_term_legend: (bool) Whether to draw the numbered representative-term legend.
+    :param term_legend_location: (str) Matplotlib location code for the term legend.
+    :param term_legend_bbox_to_anchor: (tuple[float, float]) Anchor position for the representative-term legend, in axes coordinates.
+    :param term_legend_columns: (int) Number of columns in the representative-term legend.
+    :param scatter_kwargs: dict[str, Any] | None
+    :return: (GOFigurePlotResult) Supplied axis, representative plot table, cluster membership, colorbar, legends,
+        and extra artists that can be supplied to figure saving.
 
     Examples
     --------
@@ -9146,6 +9556,53 @@ def plot_umap_latent_space_trvi(
     vertical_legend_gap
         Relative horizontal gap between the GE-TU UMAP and the
         full-height legend column. Default: 0.018.
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `umap_n_neighbors` | `15` |
+    | `umap_min_dist` | `0.1` |
+    | `horizontal_legend_height_mm` | `14.0` |
+    | `horizontal_legend_gap_mm` | `computed from the data or layout` |
+    | `figure_width_mm` | `180.0` |
+    | `figure_height_mm` | `computed from the data or layout` |
+    | `max_figure_height_mm` | `247.0` |
+    | `latent_title_fontsize` | `8` |
+    | `panel_label_fontsize` | `11` |
+    | `panel_label_y` | `1.04` |
+    | `umap_axis_fontsize` | `7` |
+    | `legend_fontsize` | `6.5` |
+    | `legend_title_fontsize` | `8` |
+    | `colorbar_label_fontsize` | `7` |
+    | `colorbar_tick_fontsize` | `6` |
+    | `cell_type_legend_marker_size` | `36.0` |
+    | `cell_type_legend_labelspacing` | `0.65` |
+    | `cell_type_legend_handletextpad` | `0.5` |
+    | `weighting_vmin` | `0.0` |
+    | `weighting_vmax` | `1.0` |
+    | `grid_wspace` | `0.22` |
+    | `grid_hspace` | `0.22` |
+    | `single_seed_figure_left` | `0.035` |
+    | `single_seed_figure_right` | `0.965` |
+    | `single_seed_figure_bottom` | `computed from the data or layout` |
+    | `single_seed_figure_top` | `0.975` |
+    | `multi_seed_figure_left` | `0.035` |
+    | `multi_seed_figure_right` | `computed from the data or layout` |
+    | `multi_seed_figure_bottom` | `computed from the data or layout` |
+    | `multi_seed_figure_top` | `0.975` |
+    | `seed_panel_hspace` | `0.14` |
+    | `seed_separator_color` | `'#808080'` |
+    | `seed_separator_linewidth` | `0.7` |
+    | `seed_separator_linestyle` | `(0, (4, 3))` |
+    | `seed_separator_xmin` | `computed from the data or layout` |
+    | `seed_separator_xmax` | `computed from the data or layout` |
+    | `dataset_name` | `'default'` |
+    | `tax_level` | `'atlas_level'` |
+    | `file_suffix` | `'pdf'` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
     # ------------------------------------------------------------------
@@ -9243,13 +9700,13 @@ def plot_umap_latent_space_trvi(
 
     color_key_ge, color_key_tu = color_keys
 
-    if color_key_ge not in adata_ge.obs:
+    if color_key_ge not in adata_ge.obs.columns:
         raise KeyError(
             f"The GE color key '{color_key_ge}' is not present in "
             "adata_objects[0].obs."
         )
 
-    if color_key_tu not in adata_tu.obs:
+    if color_key_tu not in adata_tu.obs.columns:
         raise KeyError(
             f"The TU color key '{color_key_tu}' is not present in "
             "adata_objects[1].obs."
@@ -9398,7 +9855,7 @@ def plot_umap_latent_space_trvi(
             ).fit_transform(latent_values)
 
     # ------------------------------------------------------------------
-    # Nature Methods dimensions and typography
+    # Panel dimensions and typography
     # ------------------------------------------------------------------
     mm_per_inch = 25.4
     number_of_seeds = len(seed_specs)
@@ -10330,9 +10787,10 @@ def center_enrichment_panel(
     remains intact.
 
     Parameters
-    :param fig:
-    :param main_ax:
-    :param panel_axes:
+    :param fig: (matplotlib.figure.Figure) Existing figure that owns the panel axes.
+    :param main_ax: (matplotlib.axes.Axes) Main enrichment axis to center within the figure.
+    :param panel_axes: (dict or sequence of Axes) Existing axes belonging to the panel; see the helper description for the expected layout.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     fig.canvas.draw()
 
@@ -10380,8 +10838,20 @@ def plot_transcript_usage_cell_states_and_pathways_trvi(
     :param tax_level_list: List of taxonomy levels (tissues in Tabula Muris)
     :param embedding: Selected TRVI embedding
     :param seed: Random seed for reproducibility
-    :param cell_org_hierarchy_dictionary:
+    :param cell_org_hierarchy_dictionary: (Dict[str, str]) Mapping from tissue/taxonomic group names to organ-system categories.
     :param save_fig: boolean by default True
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `cell_type_groups_key` | `'cell_type_group'` |
+    | `cell_type_key` | `'cell_ontology_class'` |
+    | `dataset_name` | `'default'` |
+    | `umap_dot_size` | `12` |
+
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
     # Unpack adata_objects
@@ -10389,8 +10859,8 @@ def plot_transcript_usage_cell_states_and_pathways_trvi(
     adata_2 = adata_objects[1].copy() # transcript usage data
 
     # Construct modality relevance weight keys
-    weighting_key_GE = "ZINB_" + str(seed) + "_weighting"
-    weighting_key_TU = "ZIDM_" + str(seed) + "_weighting"
+    weighting_key_ge = "ZINB_" + str(seed) + "_weighting"
+    weighting_key_tu = "ZIDM_" + str(seed) + "_weighting"
 
     # Unpack kwargs
     cell_type_groups_key = kwargs.get("cell_type_groups_key", "cell_type_group") # Default is for Tabula Muris
@@ -10470,7 +10940,7 @@ def plot_transcript_usage_cell_states_and_pathways_trvi(
 
     sc.pl.umap(
         adata_1,
-        color=weighting_key_GE,
+        color=weighting_key_ge,
         ax=ax01,
         size=umap_dot_size,
         show=False,
@@ -10485,12 +10955,12 @@ def plot_transcript_usage_cell_states_and_pathways_trvi(
     ax01.set_box_aspect(1)
     ax01.set_anchor("C")
 
-    cbar_ax01 = ax01.inset_axes([
+    cbar_ax01 = ax01.inset_axes((
         1.0 + umap_cbar_pad,
         umap_cbar_y,
         umap_cbar_width,
         umap_cbar_length,
-    ])
+    ))
 
     fig.colorbar(ax01.collections[0], cax=cbar_ax01)
     ax01.set_title('b', loc='left', fontsize=20, fontweight='bold')
@@ -10500,7 +10970,7 @@ def plot_transcript_usage_cell_states_and_pathways_trvi(
     ax02 = fig.add_subplot(umap_gs[0, 2])
     sc.pl.umap(
         adata_2,
-        color=weighting_key_TU,
+        color=weighting_key_tu,
         ax=ax02,
         size=umap_dot_size,
         show=False,
@@ -10516,12 +10986,12 @@ def plot_transcript_usage_cell_states_and_pathways_trvi(
     ax02.set_box_aspect(1)
     ax02.set_anchor("C")
 
-    cbar_ax02 = ax02.inset_axes([
+    cbar_ax02 = ax02.inset_axes((
         1.0 + umap_cbar_pad,
         umap_cbar_y,
         umap_cbar_width,
         umap_cbar_length,
-    ])
+    ))
 
     fig.colorbar(ax02.collections[0], cax=cbar_ax02)
 
@@ -10531,13 +11001,13 @@ def plot_transcript_usage_cell_states_and_pathways_trvi(
     # d Dot plot
     all_cell_type_groups = list(adata_1.obs[cell_type_groups_key].unique())
 
-    single_cell_weightings_1 = adata_1.obs[weighting_key_GE].to_numpy()
+    single_cell_weightings_1 = adata_1.obs[weighting_key_ge].to_numpy()
     single_cell_weightings_2 = 1 - single_cell_weightings_1
     single_cell_labels = adata_1.obs[cell_type_key].to_numpy()
     unique_cell_labels = np.unique(single_cell_labels)
 
     single_cell_weightings = np.zeros((len(unique_cell_labels), len(all_cell_type_groups) * 2))
-    num_cells_GETU_per_cell_type_group = np.zeros((len(unique_cell_labels), len(all_cell_type_groups) * 2))
+    num_cells_getu_per_cell_type_group = np.zeros((len(unique_cell_labels), len(all_cell_type_groups) * 2))
     cell_cell_type_group = adata_1.obs[cell_type_groups_key].to_numpy()
 
     for i, cell_type_group in enumerate(all_cell_type_groups):
@@ -10553,10 +11023,10 @@ def plot_transcript_usage_cell_states_and_pathways_trvi(
             idx = label_indices[:, 0]
             single_cell_weightings[j, i * 2] = np.mean(sc_w1_t[idx])
             single_cell_weightings[j, i * 2 + 1] = np.mean(sc_w2_t[idx])
-            num_cells_GETU_per_cell_type_group[j, i * 2] = len(idx)
-            num_cells_GETU_per_cell_type_group[j, i * 2 + 1] = len(idx)
+            num_cells_getu_per_cell_type_group[j, i * 2] = len(idx)
+            num_cells_getu_per_cell_type_group[j, i * 2 + 1] = len(idx)
 
-    num_cells_GETU_per_cell_type_group_relative = num_cells_GETU_per_cell_type_group / np.max(num_cells_GETU_per_cell_type_group)
+    num_cells_getu_per_cell_type_group_relative = num_cells_getu_per_cell_type_group / np.max(num_cells_getu_per_cell_type_group)
 
     # DOT PLOT START
 
@@ -10589,14 +11059,14 @@ def plot_transcript_usage_cell_states_and_pathways_trvi(
 
     # 3. Apply reordering to data
     ordered_weightings = single_cell_weightings[new_row_indices, :][:, new_col_indices]
-    ordered_sizes = num_cells_GETU_per_cell_type_group_relative[new_row_indices, :][:, new_col_indices]
+    ordered_sizes = num_cells_getu_per_cell_type_group_relative[new_row_indices, :][:, new_col_indices]
 
     weights_transposed = ordered_weightings.T
     sizes_transposed = ordered_sizes.T
 
-    X_grid, Y_grid = np.meshgrid(range(weights_transposed.shape[1]), range(weights_transposed.shape[0]))
-    x_coords = X_grid.flatten()
-    y_coords = Y_grid.flatten()
+    x_grid, y_grid = np.meshgrid(range(weights_transposed.shape[1]), range(weights_transposed.shape[0]))
+    x_coords = x_grid.flatten()
+    y_coords = y_grid.flatten()
 
     # 4. Create the Subplot
     # INCREASE FIGURE WIDTH HERE IF NEEDED: fig.set_figwidth(20)
@@ -10639,7 +11109,7 @@ def plot_transcript_usage_cell_states_and_pathways_trvi(
     # Position the colorbar relative to ax_dot so that it remains outside the
     # dot plot even when the surrounding GridSpec is adjusted.
     cbar_ax = ax_dot.inset_axes(
-        [0.35, 1.10, 0.30, 0.035],
+        (0.35, 1.10, 0.30, 0.035),
         transform=ax_dot.transAxes,
     )
 
@@ -10677,11 +11147,11 @@ def plot_transcript_usage_cell_states_and_pathways_trvi(
 
     # e Bar chart of weights and DEGs across tissus
     """
-    cell_type_group_GE_weighting_df = adata_1.obs.groupby(cell_type_groups_key)[weighting_key_GE].mean().to_frame()
-    cell_type_group_TU_weighting_df = adata_2.obs.groupby(cell_type_groups_key)[weighting_key_TU].mean().to_frame()
+    cell_type_group_GE_weighting_df = adata_1.obs.groupby(cell_type_groups_key)[weighting_key_ge].mean().to_frame()
+    cell_type_group_TU_weighting_df = adata_2.obs.groupby(cell_type_groups_key)[weighting_key_tu].mean().to_frame()
 
-    cell_type_group_GE_weighting_df.rename(columns={weighting_key_GE: "GE weight"}, inplace=True)
-    cell_type_group_TU_weighting_df.rename(columns={weighting_key_TU: "TU weight"}, inplace=True)
+    cell_type_group_GE_weighting_df.rename(columns={weighting_key_ge: "GE weight"}, inplace=True)
+    cell_type_group_TU_weighting_df.rename(columns={weighting_key_tu: "TU weight"}, inplace=True)
 
     cell_type_group_weighting_df = pd.concat([cell_type_group_GE_weighting_df, cell_type_group_TU_weighting_df], axis=1)
     cell_type_group_weighting_df = cell_type_group_weighting_df.reindex(sorted_cell_type_groups)
@@ -10691,7 +11161,7 @@ def plot_transcript_usage_cell_states_and_pathways_trvi(
     """
     from .utils import create_cell_type_groups_relevance_weight_df
     plot_df = create_cell_type_groups_relevance_weight_df(adata_objects=(adata_1, adata_2),
-                                                          weighting_keys=[weighting_key_GE, weighting_key_TU],
+                                                          weighting_keys=[weighting_key_ge, weighting_key_tu],
                                                           cell_type_groups_key=cell_type_groups_key,
                                                           cell_org_hierarchy_dictionary=cell_org_hierarchy_dictionary,
                                                           save_cell_type_groups_relevance_weight_df=True,
@@ -10901,41 +11371,41 @@ def plot_latent_spaces_MMVAEplus(
     r"""
     Given two AnnData objects containing the gene expression and transcript usage data of a specific tissue,
     plot UMAPs of the shared and private latent spaces of the MMVAE+. As reference the UMAPs with PCA embeddings are
-    given
+    given.
 
-    :param adata_objects:
-    :param tissue:
-    :param model_name:
-    :param num_cols:
-    :param num_rows:
-    :param figsize:
-    :param wspace:
-    :param show_plot:
-    :param save_fig:
-    :param save_pgf:
-
+     :param adata_objects: (Tuple[AnnData, ...]) Annotated objects in gene expression then transcript usage order; see the function description for any shared object.
+    :param tissue: (str | None) Tissue label used for data selection and/or figure naming, as described above.
+    :param model_name: (str) Model identifier used for analysis keys and figure filenames.
+    :param num_cols: (int) Number of subplot columns; must accommodate the panels created by the function.
+    :param num_rows: (int) Number of subplot rows; must accommodate the panels created by the function.
+    :param figsize: (float) Base subplot size in inches, used with the row/column count to calculate the figure size.
+    :param wspace: (float) Horizontal subplot spacing relative to the base subplot width.
+    :param show_plot: (bool) Whether to display the generated figure with Matplotlib.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :param save_pgf: (bool) Whether to export an additional PGF figure.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
-    adata_GE_linear, adata_TU_linear = adata_objects
-    adata_GE_nonlinear = adata_GE_linear.copy()
-    adata_TU_nonlinear = adata_TU_linear.copy()
-    adata_shared = adata_GE_linear.copy()
+    adata_ge_linear, adata_tu_linear = adata_objects
+    adata_ge_nonlinear = adata_ge_linear.copy()
+    adata_tu_nonlinear = adata_tu_linear.copy()
+    adata_shared = adata_ge_linear.copy()
 
     # Compute neighbourhood graph for linear embeddings of gene expression data
-    sc.pp.pca(adata_GE_linear)  # default is 50 PCs
-    sc.pp.neighbors(adata_GE_linear)
-    sc.tl.umap(adata_GE_linear)
+    sc.pp.pca(adata_ge_linear)  # default is 50 PCs
+    sc.pp.neighbors(adata_ge_linear)
+    sc.tl.umap(adata_ge_linear)
 
     # Compute neighbourhood graph for nonlinear embeddings of gene expression data
-    adata_GE_nonlinear.obsm["X_umap"] = UMAP(n_components=2).fit_transform(adata_GE_nonlinear.obsm["MMVAE_latent"])
+    adata_ge_nonlinear.obsm["X_umap"] = UMAP(n_components=2).fit_transform(adata_ge_nonlinear.obsm["MMVAE_latent"])
 
     # Compute neighbourhood graph for linear embeddings of transcript usage data
-    sc.pp.pca(adata_TU_linear, layer="psi")  # default is 50 PCs
-    sc.pp.neighbors(adata_TU_linear)
-    sc.tl.umap(adata_TU_linear)
+    sc.pp.pca(adata_tu_linear, layer="psi")  # default is 50 PCs
+    sc.pp.neighbors(adata_tu_linear)
+    sc.tl.umap(adata_tu_linear)
 
     # Compute neighbourhood graph for nonlinear embeddings of transcript usage data
-    adata_TU_nonlinear.obsm["X_umap"] = UMAP(n_components=2).fit_transform(adata_TU_nonlinear.obsm["MMVAE_latent"])
+    adata_tu_nonlinear.obsm["X_umap"] = UMAP(n_components=2).fit_transform(adata_tu_nonlinear.obsm["MMVAE_latent"])
 
     # Compute neighbourhood graph for shared nonlinear embeddings of gene expression and transcript usage
     adata_shared.obsm["X_umap"] = UMAP(n_components=2).fit_transform(adata_shared.obsm["MMVAE_shared_latent"])
@@ -10949,13 +11419,13 @@ def plot_latent_spaces_MMVAEplus(
 
     plt.subplots_adjust(wspace=wspace)
 
-    sc.pl.umap(adata_GE_linear, color='cell_ontology_class', title="GE PCA Embedding", legend_loc=None, ax=axs[0, 0],
+    sc.pl.umap(adata_ge_linear, color='cell_ontology_class', title="GE PCA Embedding", legend_loc=None, ax=axs[0, 0],
                show=False, frameon=False)
-    sc.pl.umap(adata_GE_nonlinear, color='cell_ontology_class', title="GE MMVAE+ Embedding", ax=axs[0, 1],
+    sc.pl.umap(adata_ge_nonlinear, color='cell_ontology_class', title="GE MMVAE+ Embedding", ax=axs[0, 1],
                show=False, frameon=False)
-    sc.pl.umap(adata_TU_linear, color='cell_ontology_class', title="TU PCA Embedding", legend_loc=None,
+    sc.pl.umap(adata_tu_linear, color='cell_ontology_class', title="TU PCA Embedding", legend_loc=None,
                ax=axs[1, 0], show=False, frameon=False)
-    sc.pl.umap(adata_TU_nonlinear, color='cell_ontology_class', title="TU MMVAE+ Embedding", legend_loc=None,
+    sc.pl.umap(adata_tu_nonlinear, color='cell_ontology_class', title="TU MMVAE+ Embedding", legend_loc=None,
                ax=axs[1, 1], show=False, frameon=False)
     axs[2, 0].axis("off")
     sc.pl.umap(adata_shared, color='cell_ontology_class', title="Shared MMVAE+ Embedding", legend_loc=None,
@@ -10981,7 +11451,7 @@ def plot_latent_spaces_MMVAEplus(
     if save_pgf:
 
         fig, axs = plt.subplots()
-        sc.pl.umap(adata_GE_nonlinear, color='cell_ontology_class', title="GE MMVAE+ Embedding", ax=axs, show=False, legend_loc=None)
+        sc.pl.umap(adata_ge_nonlinear, color='cell_ontology_class', title="GE MMVAE+ Embedding", ax=axs, show=False, legend_loc=None)
         # Hide the axes
         axs.set_xticks([])
         axs.set_yticks([])
@@ -10995,7 +11465,7 @@ def plot_latent_spaces_MMVAEplus(
         fig.savefig("./figures/tabulaMuris/umap_embeddings_GE_MMVAE_" + model_name + "_" + tissue + ".png")
 
         fig, axs = plt.subplots()
-        sc.pl.umap(adata_TU_nonlinear, color='cell_ontology_class', title="TU MMVAE+ Embedding", ax=axs, show=False, legend_loc=None)
+        sc.pl.umap(adata_tu_nonlinear, color='cell_ontology_class', title="TU MMVAE+ Embedding", ax=axs, show=False, legend_loc=None)
         # Hide the axes
         axs.set_xticks([])
         axs.set_yticks([])
@@ -11035,38 +11505,40 @@ def compare_linear_nonlinear_embeddings_GE_TU(
         save_fig: bool = True,
 ) -> None:
     r"""
-    Given two AnnData objects containing the gene expression and transcript usage data of a specific tissue, plot UMAPs with the linear
-    and non-linear embeddings of the data
+    Given two AnnData objects containing the gene expression and transcript usage data of a specific tissue, plot UMAPs
+    with the linear and non-linear embeddings of the data
 
-    :param adata_objects:
-    :param tissue:
-    :param beta:
-    :param num_cols:
-    :param num_rows:
-    :param figsize:
-    :param wspace:
-    :param show_plot:
-    :param save_fig:
+    :param adata_objects: (Tuple[AnnData, ...]) Annotated objects in gene expression then transcript usage order; see
+        the function description for any shared object.
+    :param tissue: (str | None) Tissue label used for data selection and/or figure naming, as described above.
+    :param beta: (float) VAE KL-weight identifier used to label the plot and construct its filename.
+    :param num_cols: (int) Number of subplot columns; must accommodate the panels created by the function.
+    :param num_rows: (int) Number of subplot rows; must accommodate the panels created by the function.
+    :param figsize: (float) Base subplot size in inches, used with the row/column count to calculate the figure size.
+    :param wspace: (float) Horizontal subplot spacing relative to the base subplot width.
+    :param show_plot: (bool) Whether to display the generated figure with Matplotlib.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
-    adata_GE_linear, adata_TU_linear = adata_objects
-    adata_GE_nonlinear = adata_GE_linear.copy()
-    adata_TU_nonlinear = adata_TU_linear.copy()
+    adata_ge_linear, adata_tu_linear = adata_objects
+    adata_ge_nonlinear = adata_ge_linear.copy()
+    adata_tu_nonlinear = adata_tu_linear.copy()
 
     # Compute neighbourhood graph for linear embeddings of gene expression data
-    sc.pp.pca(adata_GE_linear)  # default is 50 PCs
-    sc.pp.neighbors(adata_GE_linear)
-    sc.tl.umap(adata_GE_linear)
+    sc.pp.pca(adata_ge_linear)  # default is 50 PCs
+    sc.pp.neighbors(adata_ge_linear)
+    sc.tl.umap(adata_ge_linear)
 
     # Compute neighbourhood graph for nonlinear embeddings of gene expression data TO DO CHECK IF VAE LATENT IS USED
-    adata_GE_nonlinear.obsm["X_umap"] = UMAP(n_components=2).fit_transform(adata_GE_nonlinear.obsm["VAE_latent"])
+    adata_ge_nonlinear.obsm["X_umap"] = UMAP(n_components=2).fit_transform(adata_ge_nonlinear.obsm["VAE_latent"])
 
     # Compute neighbourhood graph for linear embeddings of transcript usage data
-    sc.pp.pca(adata_TU_linear)  # default is 50 PCs
-    sc.pp.neighbors(adata_TU_linear)
-    sc.tl.umap(adata_TU_linear)
+    sc.pp.pca(adata_tu_linear)  # default is 50 PCs
+    sc.pp.neighbors(adata_tu_linear)
+    sc.tl.umap(adata_tu_linear)
 
     # Compute neighbourhood graph for nonlinear embeddings of transcript usage data
-    adata_TU_nonlinear.obsm["X_umap"] = UMAP(n_components=2).fit_transform(adata_TU_nonlinear.obsm["VAE_latent"])
+    adata_tu_nonlinear.obsm["X_umap"] = UMAP(n_components=2).fit_transform(adata_tu_nonlinear.obsm["VAE_latent"])
 
     # Plot UMAPs
     fig, axs = plt.subplots(
@@ -11077,13 +11549,13 @@ def compare_linear_nonlinear_embeddings_GE_TU(
 
     plt.subplots_adjust(wspace=wspace)
 
-    sc.pl.umap(adata_GE_linear, color='cell_ontology_class', title="GE PCA Embedding", legend_loc=None, ax=axs[0, 0],
+    sc.pl.umap(adata_ge_linear, color='cell_ontology_class', title="GE PCA Embedding", legend_loc=None, ax=axs[0, 0],
                show=False)
-    sc.pl.umap(adata_GE_nonlinear, color='cell_ontology_class', title="GE VAE Embedding", ax=axs[0, num_cols - 1],
+    sc.pl.umap(adata_ge_nonlinear, color='cell_ontology_class', title="GE VAE Embedding", ax=axs[0, num_cols - 1],
                show=False)
-    sc.pl.umap(adata_TU_linear, color='cell_ontology_class', title="TU PCA Embedding", legend_loc=None,
+    sc.pl.umap(adata_tu_linear, color='cell_ontology_class', title="TU PCA Embedding", legend_loc=None,
                ax=axs[num_rows - 1, 0], show=False)
-    sc.pl.umap(adata_TU_nonlinear, color='cell_ontology_class', title="TU VAE Embedding", legend_loc=None,
+    sc.pl.umap(adata_tu_nonlinear, color='cell_ontology_class', title="TU VAE Embedding", legend_loc=None,
                ax=axs[num_rows - 1, num_cols - 1], show=False)
 
     fig.suptitle(f"Effect of Non-linear Embeddings for GE and TU")
@@ -11117,17 +11589,18 @@ def compare_UMAP_GE_TU_clustering(
     Given two AnnData objects with UMAP obsm, plot the two UMAPs with reference cell ontology annotation as well as
     two UMAPs with the choice of clustering algorithm
 
-    :param adata_objects:
-    :param tissue:
-    :param beta:
-    :param resolutions:
-    :param clustering_alg:
-    :param num_cols:
-    :param num_rows:
-    :param figsize:
-    :param wspace:
-    :param show_plot:
-    :param save_fig:
+    :param adata_objects: (Tuple[AnnData, ...]) Annotated objects in gene expression then transcript usage order; see the function description for any shared object.
+    :param tissue: (str | None) Tissue label used for data selection and/or figure naming, as described above.
+    :param beta: (float) VAE KL-weight identifier used to label the plot and construct its filename.
+    :param resolutions: (np.ndarray) Candidate clustering resolutions for optimization against the reference cell labels.
+    :param clustering_alg: (str) Clustering algorithm, "leiden" or "louvain".
+    :param num_cols: (int) Number of subplot columns; must accommodate the panels created by the function.
+    :param num_rows: (int) Number of subplot rows; must accommodate the panels created by the function.
+    :param figsize: (float) Base subplot size in inches, used with the row/column count to calculate the figure size.
+    :param wspace: (float) Horizontal subplot spacing relative to the base subplot width.
+    :param show_plot: (bool) Whether to display the generated figure with Matplotlib.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     adata1, adata2 = adata_objects
 
@@ -11208,18 +11681,20 @@ def compare_UMAP_MMVAEplus_clustering(
     Given three adata objects with UMAP obsm, plot the two UMAPs with reference cell ontology annotation as well as
     two UMAPs with the choice of clustering algorithm
 
-    :param adata_objects:
-    :param tissue:
-    :param resolutions:
-    :param model_name:
-    :param clustering_alg:
-    :param num_cols:
-    :param num_rows:
-    :param figsize:
-    :param wspace:
-    :param show_plot:
-    :param save_fig:
-    :param save_tikz:
+    :param adata_objects: (Tuple[AnnData, ...]) Annotated objects in gene expression then transcript usage order; see
+        the function description for any shared object.
+    :param tissue: (str | None) Tissue label used for data selection and/or figure naming, as described above.
+    :param resolutions: (np.ndarray) Candidate clustering resolutions for optimization against the reference cell labels.
+    :param model_name: (str) Model identifier used for analysis keys and figure filenames.
+    :param clustering_alg: (str) Clustering algorithm, "leiden" or "louvain".
+    :param num_cols: (int) Number of subplot columns; must accommodate the panels created by the function.
+    :param num_rows: (int) Number of subplot rows; must accommodate the panels created by the function.
+    :param figsize: (float) Base subplot size in inches, used with the row/column count to calculate the figure size.
+    :param wspace: (float) Horizontal subplot spacing relative to the base subplot width.
+    :param show_plot: (bool) Whether to display the generated figure with Matplotlib.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :param save_tikz: (bool) Whether to save additional PGF exports in this implementation.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     adata1, adata2, adata3 = adata_objects
 
@@ -11297,43 +11772,43 @@ def compare_UMAP_MMVAEplus_clustering(
         )
 
     # Recovered cell type through clustering
-    cell_type_recovered_GE = (cell_type_clusters[:, 1] == cell_type_clusters[:, 2]).reshape(-1, 1)
-    cell_type_recovered_TU = (cell_type_clusters[:, 3] == cell_type_clusters[:, 4]).reshape(-1, 1)
-    cell_type_recovered_GETU = (cell_type_clusters[:, 5] == cell_type_clusters[:, 6]).reshape(-1, 1)
+    cell_type_recovered_ge = (cell_type_clusters[:, 1] == cell_type_clusters[:, 2]).reshape(-1, 1)
+    cell_type_recovered_tu = (cell_type_clusters[:, 3] == cell_type_clusters[:, 4]).reshape(-1, 1)
+    cell_type_recovered_getu = (cell_type_clusters[:, 5] == cell_type_clusters[:, 6]).reshape(-1, 1)
 
     cell_type_recovered_boolean = np.concatenate(
-        (cell_type_recovered_GE, cell_type_recovered_TU, cell_type_recovered_GETU),
+        (cell_type_recovered_ge, cell_type_recovered_tu, cell_type_recovered_getu),
         axis=-1
     )
 
     recovered_none = np.sum(
         ~cell_type_recovered_boolean[:, 0] & ~cell_type_recovered_boolean[:, 1] & ~cell_type_recovered_boolean[:, 2]
     )
-    recovered_GETU_only = np.sum(
+    recovered_getu_only = np.sum(
         ~cell_type_recovered_boolean[:, 0] & ~cell_type_recovered_boolean[:, 1] & cell_type_recovered_boolean[:, 2]
     )
-    recovered_TU_only = np.sum(
+    recovered_tu_only = np.sum(
         ~cell_type_recovered_boolean[:, 0] & cell_type_recovered_boolean[:, 1] & ~cell_type_recovered_boolean[:, 2]
     )
-    recovered_TU_GETU = np.sum(
+    recovered_tu_getu = np.sum(
         ~cell_type_recovered_boolean[:, 0] & cell_type_recovered_boolean[:, 1] & cell_type_recovered_boolean[:, 2]
     )
-    recovered_GE_only = np.sum(
+    recovered_ge_only = np.sum(
         cell_type_recovered_boolean[:, 0] & ~cell_type_recovered_boolean[:, 1] & ~cell_type_recovered_boolean[:, 2]
     )
-    recovered_GE_GETU = np.sum(
+    recovered_ge_getu = np.sum(
         cell_type_recovered_boolean[:, 0] & ~cell_type_recovered_boolean[:, 1] & cell_type_recovered_boolean[:, 2]
     )
-    recovered_GE_TU = np.sum(
+    recovered_ge_tu = np.sum(
         cell_type_recovered_boolean[:, 0] & cell_type_recovered_boolean[:, 1] & ~cell_type_recovered_boolean[:, 2]
     )
-    recovered_GE_TU_GETU = np.sum(
+    recovered_ge_tu_getu = np.sum(
         cell_type_recovered_boolean[:, 0] & cell_type_recovered_boolean[:, 1] & cell_type_recovered_boolean[:, 2]
     )
 
     cell_type_recovered_array = np.array([
-        recovered_none, recovered_GETU_only, recovered_TU_only, recovered_TU_GETU,
-        recovered_GE_only, recovered_GE_GETU, recovered_GE_TU, recovered_GE_TU_GETU
+        recovered_none, recovered_getu_only, recovered_tu_only, recovered_tu_getu,
+        recovered_ge_only, recovered_ge_getu, recovered_ge_tu, recovered_ge_tu_getu
     ])
 
     index_arrays = [
@@ -11426,13 +11901,14 @@ def plot_gene_expression_transcript_usage(
     levels for the same cells and genes. The genes are plotted on the horizontal axis and the cells on the vertical
     axis.
 
-    :param adata: Tuple of AnnData objects, the first one containing the gene expression data and the second one the transcript usage data
+    :param adata: Tuple of AnnData objects, the first one containing the gene expression data and the second one the
+        transcript usage data
     :param tissue: str, the name of the tissue
     :param genes: List of str, the genes to be filtered for
     :param transcript: int, the index of the transcript to be filtered for
     :param cell_types: List of str, the cell types to be filtered for
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
     :return: None
-
     """
 
     # Check if the input is a tuple of two AnnData objects
@@ -11640,7 +12116,8 @@ def plot_data_imputation(
     quantitively compared through bar charts of each modality plotting the reconstruction error of the imputed and
     cross-modally imputed data.
 
-    :param adata: Tuple of AnnData objects, the first one containing the gene expression data and the second one the transcript usage data
+    :param adata: Tuple of AnnData objects, the first one containing the gene expression data and the second one the
+        transcript usage data
     :param tissue: str, the name of the tissue
     :param cell_types: List of str, the cell types to be filtered for
     :param save_fig: bool, whether to save the figure or not
@@ -11805,7 +12282,7 @@ def create_histogram_bins(
     :param count_data_modality: If True, the bin labels will be formatted as integers, otherwise as floats
     :param proportions: If True, return proportions of counts in each bin, otherwise return counts
     :param zero_inflation_included: If True, include a bin for zero values
-    :return: Tuple of bin labels and bin proportions or counts
+    :return: (tuple) Bin-label list and NumPy array of bin counts or proportions, according to proportions.
     :rtype: Tuple[np.ndarray, np.ndarray]
 
     Example:
@@ -11887,7 +12364,20 @@ def create_histogram_bins(
 
     return bin_labels, np.array(counts_in_bins, dtype=float)
 
-def distance_matrix(cell_embeddings: np.ndarray, cell_types: np.ndarray, metric: str="euclidean") -> Tuple[np.ndarray,np.ndarray]:
+def distance_matrix(
+        cell_embeddings: np.ndarray,
+        cell_types: np.ndarray,
+        metric: str="euclidean"
+) -> Tuple[np.ndarray,np.ndarray]:
+    r"""
+    Compute pairwise Euclidean distances after grouping cells by sorted cell-type label.
+    Order within each cell type is preserved. The metric argument is currently ignored.
+
+    :param cell_embeddings: (np.ndarray) Cell-by-latent-coordinate matrix.
+    :param cell_types: (sequence[str] | None) Cell-type labels selected for the plot.
+    :param metric: (str) Retained API argument; the implementation always computes Euclidean distance.
+    :return: (Tuple[np.ndarray, np.ndarray]) Square cell-distance matrix and cell-type labels in matrix order.
+    """
     unique_cell_types = np.sort(np.unique(cell_types))
     num_cell_types = len(unique_cell_types)
 
@@ -11914,6 +12404,11 @@ def distance_matrix(cell_embeddings: np.ndarray, cell_types: np.ndarray, metric:
 def _validate_square_matrix(matrix, name, expected_size=None):
     r"""
     Return *matrix* as a float array after validating its dimensions.
+
+    :param matrix: (array-like) Two-dimensional square numeric matrix in the desired display order.
+    :param name: (str) Matrix name included in validation error messages.
+    :param expected_size: (int | None) Required row and column count; None checks only that the matrix is square.
+    :return: (np.ndarray) Float-valued square matrix; invalid dimensions raise ValueError.
     """
     array = np.asarray(matrix, dtype=float)
 
@@ -11939,6 +12434,13 @@ def _make_lineage_color_dict(
 ):
     r"""
     Create one lineage palette shared by the heatmaps and network.
+
+    :param lineage_mapping: (dict) Mapping from each displayed cell-type label to its lineage.
+    :param cluster_annotations: (array-like) Cluster labels aligned with distance-matrix rows and columns.
+    :param palette: (str or mapping | None) Color palette used by the plot; lineage helpers also accept a
+        lineage-to-color mapping.
+    :return: (tuple) Lineage labels in first-occurrence order and a lineage-to-RGBA dictionary.
+        Missing cell-type mappings or palette entries raise KeyError.
     """
     missing_annotations = [
         annotation
@@ -12000,6 +12502,14 @@ def _create_matrix_panel_axes(
 ):
     r"""
     Create equally sized matrix, strip and colorbar axes in one grid cell.
+
+    :param fig: (matplotlib.figure.Figure) Existing figure that owns the panel axes.
+    :param subplot_spec: (matplotlib.gridspec.SubplotSpec) Grid cell in which to create the panel.
+    :param panel_label: (str) Letter or label identifying the panel.
+    :param title: (str | None) Panel title; None omits an optional title.
+    :param panel_label_fontsize: (float) Font size in points for panel labels.
+    :param title_fontsize: (float) Font size in points for panel titles.
+    :return: (dict) Axes under title, top_strip, left_strip, matrix, and colorbar.
     """
     panel_grid = subplot_spec.subgridspec(
         nrows=3,
@@ -12054,6 +12564,12 @@ def _format_colorbar(
 ):
     r"""
     Apply the common typography to a seaborn heatmap colorbar.
+
+    :param heatmap_ax: (matplotlib.axes.Axes) Axis containing the heatmap whose colorbar should be formatted.
+    :param label: (str) Colorbar label text.
+    :param label_fontsize: (float) Font size in points for colorbar labels.
+    :param tick_fontsize: (float) Font size in points for tick labels.
+    :return: (Colorbar | None) Formatted heatmap colorbar, or None when the axis has no associated colorbar.
     """
     if not heatmap_ax.collections:
         return None
@@ -12085,6 +12601,11 @@ def _align_matrix_annotation_axes(panel_axes, strip_gap_mm=0.8):
     slot. The auxiliary axes do not undergo the same aspect correction. This
     helper therefore reads the final matrix position and explicitly matches the
     strip width/height and colorbar height to it.
+
+    :param panel_axes: (dict or sequence of Axes) Existing axes belonging to the panel; see the helper description for
+        the expected layout.
+    :param strip_gap_mm: (float) Physical gap in millimetres between the matrix and its lineage strips.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     matrix_ax = panel_axes["matrix"]
     left_strip_ax = panel_axes["left_strip"]
@@ -12141,12 +12662,26 @@ def _adjust_network_label_positions(
     connector_linewidth=0.35,
 ):
     r"""
-    Repel overlapping node labels in display coordinates.
+    Repel overlapping node labels in display coordinates. Working in display coordinates accounts for the true rendered
+    width of labels such as ``EC (coronary)``. The optimisation is deterministic and dependency-free, and optional
+    connector lines retain the association with nodes whose labels have moved appreciably.
 
-    Working in display coordinates accounts for the true rendered width of
-    labels such as ``EC (coronary)``. The optimisation is deterministic and
-    dependency-free, and optional connector lines retain the association with
-    nodes whose labels have moved appreciably.
+    :param ax: (matplotlib.axes.Axes) Existing axis on which to draw or apply formatting.
+    :param label_artists: (dict) Mapping from graph nodes to their Matplotlib text artists.
+    :param node_positions: (dict) Mapping from graph nodes to their original two-dimensional data coordinates.
+    :param iterations: (int) Maximum number of overlap-repulsion iterations.
+    :param padding_points: (float) Extra label padding in display points during overlap detection.
+    :param max_displacement_points: (float) Maximum label displacement from its anchor in display points.
+    :param pull_strength: (float) Strength of the force pulling labels toward their original positions.
+    :param move_fraction: (float) Fraction of the calculated displacement applied per iteration.
+    :param draw_connectors: (bool) Draw lines connecting sufficiently displaced labels to their nodes.
+    :param connector_min_distance_points: (float) Minimum label displacement, in points, for drawing a connector.
+    :param connector_color: (color) Color of node-to-label connector lines.
+    :param connector_alpha: (float) Opacity of connector lines.
+    :param connector_linewidth: (float) Connector line width in points.
+
+    :return: (tuple) Final label-position dictionary and a list of connector artists. Existing text artists are moved in
+        place.
     """
     if not label_artists:
         return {}, []
@@ -12352,7 +12887,7 @@ def plot_seed_similarity_matrix(
     :param colorbar_label_fontsize: Font size for the colorbar label.
     :param colorbar_tick_fontsize: Font size for the colorbar tick labels.
     :param verbose: If True, print the median and range of pairwise seed similarities.
-    :return: Dictionary containing the heatmap axis, colorbar, and computed statistics.
+    :return: (dict) Heatmap axis, colorbar, and median/lower/upper pairwise seed-similarity statistics.
     """
     matrix = _validate_square_matrix(
         seed_similarity_matrix,
@@ -12463,7 +12998,7 @@ def plot_neighbour_retention(
     :param lineage_mapping: Optional dictionary mapping cell types to lineage groups for dot coloring.
     :param k: Neighborhood size integer used in score column lookup.
     :param figsize: Tuple defining figure dimensions.
-    :return: Matplotlib figure and axes objects for further customization or saving.
+    :return: (Tuple[Figure, Axes]) Figure and axis containing the retention plot.
     """
     df = retention_df.copy()
 
@@ -12578,6 +13113,22 @@ def plot_heatmap_panel(
 ):
     r"""
     Plot one distance-like matrix with matching lineage annotation strips.
+
+    :param panel_axes: (dict or sequence of Axes) Existing axes belonging to the panel; see the helper description for
+        the expected layout.
+    :param matrix: (array-like) Two-dimensional square numeric matrix in the desired display order.
+    :param cbar_label: (str) Heatmap colorbar label.
+    :param lineage_colors: (sequence) Colors aligned with matrix rows and columns for the annotation strips.
+    :param cmap: (str or Colormap) Heatmap colormap.
+    :param vmin: (float | None) Lower color normalization bound; None uses the plotting default.
+    :param vmax: (float | None) Upper color normalization bound; None uses the plotting default.
+    :param display_labels: (sequence[str] | None) Labels aligned with matrix rows and columns.
+    :param show_cell_type_labels: (bool) Whether to show cell-type tick labels on the matrix.
+    :param tick_fontsize: (float) Font size in points for tick labels.
+    :param colorbar_label_fontsize: (float) Font size in points for colorbar labels.
+    :param colorbar_tick_fontsize: (float) Font size in points for colorbar tick labels.
+    :param annotation_strip_gap_mm: (float) Physical gap between matrix and lineage annotation strips, in millimetres.
+    :return: (dict) Heatmap axis and colorbar. Supplied panel axes and annotation strips are updated in place.
     """
     ax = panel_axes["matrix"]
     cbar_ax = panel_axes["colorbar"]
@@ -12697,8 +13248,7 @@ def plot_consensus_distance_matrix(
     :param colorbar_label_fontsize: Font size for the colorbar labels.
     :param colorbar_tick_fontsize: Font size for the colorbar ticks.
     :param annotation_strip_gap_mm: Gap in millimeters between the heatmap and the annotation strips.
-    :return: A dictionary containing the axes for the consensus distance and interquartile range
-
+    :return: (dict) Results for the consensus and interquartile_range panels.
     """
     number_of_cell_types = len(cluster_annotations)
     consensus_matrix = _validate_square_matrix(
@@ -12774,6 +13324,14 @@ def _scale_edge_widths(
 ) -> np.ndarray:
     r"""
     Map edge-support values linearly onto plotting widths.
+
+    :param weights: (array-like) Edge-support values to convert to plotting widths.
+    :param minimum_support: (float) Support value mapped to the minimum edge width.
+    :param maximum_support: (float) Support value mapped to the maximum edge width.
+    :param minimum_width: (float) Minimum plotted edge width.
+    :param maximum_width: (float) Maximum plotted edge width.
+    :return: (np.ndarray) Linearly scaled widths. Empty inputs return an empty array; a degenerate support range uses
+        maximum_width.
     """
     weights = np.asarray(weights, dtype=float)
 
@@ -12858,7 +13416,8 @@ def plot_consensus_neighbourhood_topology(
     :param draw_label_connectors: Whether to draw connectors from nodes to their labels.
     :param label_connector_min_distance_points: Minimum distance for drawing label connectors in points.
     :param verbose: Whether to print additional information during plotting.
-    :return: A dictionary containing the graph object, node positions, and label positions.
+    :return: (dict) Graph, node positions, retained edge supports, explained variance, edge-width limits,
+        label artists, adjusted label positions, and connector artists.
     """
     number_of_cell_types = len(cluster_annotations)
     consensus_matrix = _validate_square_matrix(
@@ -13085,6 +13644,17 @@ def _add_lineage_legend(
 ):
     r"""
     Add the shared lineage legend to its dedicated axis.
+
+    :param ax: (matplotlib.axes.Axes) Existing axis on which to draw or apply formatting.
+    :param lineage_order: (sequence[str]) Lineage labels in legend order.
+    :param color_dict: (dict) Mapping from lineage labels to Matplotlib-compatible colors.
+    :param title_fontsize: (float) Font size in points for panel titles.
+    :param legend_fontsize: (float) Font size in points for legend text.
+    :param marker_size: (float) Size of the lineage-legend markers.
+    :param labelspacing: (float) Vertical spacing between legend entries.
+    :param handletextpad: (float) Padding between legend markers and text.
+    :param ncol: (int) Number of legend columns.
+    :return: (matplotlib.legend.Legend) Legend added to the supplied axis.
     """
     ax.set_axis_off()
     handles = [
@@ -13132,6 +13702,16 @@ def _add_edge_support_legend(
 ):
     r"""
     Add representative retained-edge widths to a dedicated legend axis.
+
+    :param ax: (matplotlib.axes.Axes) Existing axis on which to draw or apply formatting.
+    :param topology_result: (dict) Result returned by plot_consensus_neighbourhood_topology, including retained support
+        and edge widths.
+    :param edge_support_threshold: (float) Minimum edge support used to retain graph edges.
+    :param title_fontsize: (float) Font size in points for panel titles.
+    :param legend_fontsize: (float) Font size in points for legend text.
+    :param edge_color: (color) Color of graph or legend edges.
+    :param edge_alpha: (float) Opacity of graph or legend edges.
+    :return: (Legend | None) Edge-support legend, or None if no edges are retained.
     """
     ax.set_axis_off()
     retained_weights = topology_result["retained_edge_weights"]
@@ -13269,6 +13849,74 @@ def plot_seed_stability_and_consensus_topology(
         Seaborn palette name or mapping from lineages to colours.
     dataset_name, tax_level, file_suffix
         Components used to construct the saved filename.
+    :param kwargs: (dict) Optional plotting settings listed below.
+
+    Keyword settings read by this function (names are case-sensitive):
+
+    | Option | Default |
+    | --- | --- |
+    | `lineage_palette` | `None` |
+    | `figure_width_mm` | `180.0` |
+    | `figure_height_mm` | `160.0` |
+    | `max_figure_height_mm` | `247.0` |
+    | `figure_right_margin_mm` | `12.0` |
+    | `panel_label_fontsize` | `11` |
+    | `title_fontsize` | `8` |
+    | `axis_fontsize` | `7` |
+    | `tick_fontsize` | `6` |
+    | `matrix_tick_fontsize` | `4.5` |
+    | `legend_fontsize` | `6.5` |
+    | `legend_title_fontsize` | `8` |
+    | `colorbar_label_fontsize` | `7` |
+    | `colorbar_tick_fontsize` | `6` |
+    | `width_ratios` | `[1.0, 1.0, 1.0]` |
+    | `height_ratios` | `[1.0, 0.82, 0.82]` |
+    | `figure_left` | `0.035` |
+    | `figure_right` | `computed from the data or layout` |
+    | `figure_bottom` | `0.055` |
+    | `figure_top` | `0.975` |
+    | `outer_wspace` | `0.24` |
+    | `outer_hspace` | `0.24` |
+    | `seed_similarity_cmap` | `'viridis'` |
+    | `seed_similarity_vmin` | `-1.0` |
+    | `seed_similarity_vmax` | `1.0` |
+    | `verbose` | `True` |
+    | `consensus_cmap` | `'viridis'` |
+    | `iqr_cmap` | `'viridis'` |
+    | `consensus_vmin` | `None` |
+    | `consensus_vmax` | `None` |
+    | `iqr_vmin` | `0.0` |
+    | `iqr_vmax` | `None` |
+    | `show_cell_type_labels` | `False` |
+    | `annotation_strip_gap_mm` | `0.8` |
+    | `edge_color` | `'#707070'` |
+    | `edge_alpha` | `0.45` |
+    | `node_size` | `75` |
+    | `node_alpha` | `0.9` |
+    | `minimum_edge_width` | `0.45` |
+    | `maximum_edge_width` | `2.5` |
+    | `node_label_fontsize` | `5.5` |
+    | `show_grid` | `True` |
+    | `topology_margin` | `0.1` |
+    | `adjust_node_labels` | `True` |
+    | `node_label_adjust_iterations` | `500` |
+    | `node_label_repel_padding_points` | `1.2` |
+    | `node_label_max_displacement_points` | `35.0` |
+    | `node_label_pull_strength` | `0.003` |
+    | `node_label_move_fraction` | `0.8` |
+    | `draw_label_connectors` | `True` |
+    | `label_connector_min_distance_points` | `6.0` |
+    | `lineage_legend_ncol` | `computed from the data or layout` |
+    | `lineage_legend_marker_size` | `0.8` |
+    | `lineage_legend_labelspacing` | `0.45` |
+    | `lineage_legend_handletextpad` | `0.5` |
+    | `dataset_name` | `'default'` |
+    | `tax_level` | `'atlas_level'` |
+    | `file_suffix` | `'pdf'` |
+    | `figure_name` | `computed from the data or layout` |
+    | `show` | `True` |
+
+    :return: (tuple) Figure, axes dictionary, and dictionary of results from the component plotting helpers.
     """
     cluster_annotations = list(cluster_annotations)
 
@@ -13789,7 +14437,13 @@ def cell_classification_dataframe(
         classification_dict
 ) -> pd.DataFrame:
     r"""
-    TO DO: Later add marker gene classifier her
+    Create a long-format comparison of an embedding classifier and the marker-gene classifier for one cell type. Both
+    entries must provide accuracy, auroc, and f1 beneath their roc_auc dictionaries.
+
+    :param cell_type: (str) Target cell-type label for the comparison.
+    :param classifier: (str) Key selecting the embedding classifier in classification_dict.
+    :param classification_dict: (dict) Classifier results with per-cell-type metrics beneath classifier -> roc_auc -> cell_type.
+    :return: (pd.DataFrame) Six rows with Embedding, Classification Metric, and Value columns.
     """
     # Extract classification metrics of the embedding-cell type classifier for the cell type given
     accuracy_emb_cell_classifier = classification_dict[classifier]["roc_auc"][cell_type]["accuracy"]
@@ -13830,7 +14484,7 @@ def plot_transcript_usage_data_distribution_analysis(
         gene_name: str,
         intron_group_name: str,
         zero_inflation_included: bool = True,
-        likelihood_keys: List[str] = ["DM", "ZIDM"],
+        likelihood_keys: List[str] | None = None,# = ["DM", "ZIDM"],
         tissue = None,
         cluster_eval_df: pd.DataFrame = None,
         save_fig: bool = True
@@ -13846,9 +14500,15 @@ def plot_transcript_usage_data_distribution_analysis(
         :param gene_name: str, the name of the gene to be analyzed
         :param intron_group_name: str, the name of the intron group to be analyzed
         :param zero_inflation_included: bool, whether to include the structural zeros in the bar chart
+        :param likelihood_keys: List[str], if None they are ["DM", "ZIDM"] by default
+        :param tissue: by default None
+        :param cluster_eval_df: pd.DataFrame by default None
         :param save_fig: bool, whether to save the figure as a PDF file
         :return: None
         """
+        if likelihood_keys is None:
+            likelihood_keys = ["DM", "ZIDM"]
+
         # Check if the input is an AnnData object
         if not isinstance(adata, AnnData):
             raise ValueError("Input must be an AnnData object")
@@ -14185,8 +14845,8 @@ def create_histogram_transcript_usage(intron_likelihood: np.ndarray, bin_size: f
 def plot_gene_expression_data_distribution_analysis(
         adata: AnnData,
         gene_name: str,
-        likelihood_keys: List[str] = ["NB", "Gaussian"],
-        bin_sizes: list = [500, 0.8, 500, 0.8],
+        likelihood_keys: List[str] | None = None, #= ["NB", "Gaussian"],
+        bin_sizes: List[float] | None = None, #[500, 0.8, 500, 0.8],
         tissue =  None,
         cluster_eval_df: pd.DataFrame = None,
         save_fig: bool = True
@@ -14209,9 +14869,15 @@ def plot_gene_expression_data_distribution_analysis(
     :param likelihood_keys: list of names of likelihood keys to be used for predictions
     :param bin_sizes: list, the size of the bins for the histograms
     :param tissue: None, if provided the UMAP of the latent space of the embeddings of that tissue is shown
+    :param cluster_eval_df: (pd.DataFrame | None) Optional clustering-quality table for the comparison panels.
     :param save_fig: bool, whether to save the figure as a PDF file
     :return: None
     """
+    if likelihood_keys is None:
+        likelihood_keys = ["NB", "Gaussian"]
+
+    if bin_sizes is None:
+        bin_sizes = [500, 0.8, 500, 0.8]
 
     # Check if the input is an AnnData object
     if not isinstance(adata, AnnData):
@@ -14250,7 +14916,7 @@ def plot_gene_expression_data_distribution_analysis(
         for key in likelihood_keys:
             if key + "_reconstructions" not in adata.layers.keys():
                 raise ValueError("AnnData object does not contain reconstructions. Please run predictions first")
-            if key + "_nll" not in adata.obs:
+            if key + "_nll" not in adata.obs.columns:
                 raise ValueError("AnnData object does not contain negative log-likelihoods for cells. Please run predictions first.")
             if key + "_latent_mean" not in adata.obsm:
                 raise  ValueError("AnnData object does not contain latent mean embeddings. Please run predictions first.")
@@ -14625,7 +15291,7 @@ def create_count_reconstruction_dataframe(plotting_dict: Dict[str, Dict[str, np.
     :param likelihood_key: str, the key for the likelihood (e.g., "Gaussian", "NB")
     :param zero_inflation: bool, whether to use zero-inflated counts and reconstructions
     :param count_data: bool, whether the data is count data (default is True)
-    :return: pd.DataFrame, a dataframe containing the bin labels, proportions, and data type
+    :return: (pd.DataFrame) Long-format count/reconstruction comparison table with matched bin labels.
     """
 
     if zero_inflation:
@@ -14722,7 +15388,7 @@ def get_cell_type_colour(cell_type, adata, cell_label_key) -> str:
     :param cell_type: str, the cell type for which the colour is to be extracted
     :param adata: AnnData object containing the cell type information
     :param cell_label_key: str, the key in adata.obs where the cell types are stored
-    :return: str, the colour for the given cell type
+    :return: (color) Stored color for the cell type, or "black" if it is not present in the constructed mapping.
     """
     # Get the ordered categories from the AnnData object's observation data
     categories = adata.obs[cell_label_key].cat.categories
@@ -14739,11 +15405,28 @@ def get_cell_type_colour(cell_type, adata, cell_label_key) -> str:
 def plot_latent_space_evaluation_trvi(
         adata: Tuple[AnnData, AnnData],
         evaluation_df: pd.DataFrame,
-        likelihoods: List[str] = ["ZINB", "ZIDM"],
+        likelihoods: List[str] | None = None, # ["ZINB", "ZIDM"],
         tissue: str = "Heart",
         dataset_name: str = "tabulaMuris",
         save_fig: bool = True
 ) -> None:
+    r"""
+    Plot a 4-by-3 TRVI summary of latent-space UMAPs, embedding-quality metrics, distances, and modality weights.
+    The input objects must contain precomputed private/shared UMAPs and latent means, shared_X_umap, and
+    obs["weighting"]. The distance panels specifically read ZINB_private_latent_mean and ZIDM_private_latent_mean, even
+    if other likelihood labels are supplied.
+
+    :param adata: (AnnData) Annotated data containing the embeddings, annotations, and analysis results described above.
+    :param evaluation_df: (pd.DataFrame) Embedding quality metrics used for the biological-conservation comparison.
+    :param likelihoods: (List[str] | None) Gene expression and transcript usage likelihood prefixes, in that order.
+    :param tissue: (str | None) Tissue label used for data selection and/or figure naming, as described above.
+    :param dataset_name: (str) Dataset identifier used to select output directories and filenames.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
+    """
+
+    if likelihoods is None:
+        likelihoods = ["ZINB", "ZIDM"]
 
     # Check label_key for cell types
     if "cell_ontology_class" in adata[0].obs.keys():
@@ -14965,6 +15648,24 @@ def plot_cell_type_predictions_trvi_marker_genes(
         save_fig: bool = True,
 ) -> None:
     r"""
+    Compare TRVI embedding classifiers and marker-gene classifiers for two cell types. Panels show reference and
+    predicted labels on the shared UMAP, classification metrics, and ROC curves. Prediction columns are taken from
+    adata_eval and copied into matching test/tissue rows in adata_full; these objects must have matching evaluation-cell
+    order. The supplied prediction-array argument is unused.
+
+    :param adata_full: (AnnData) Full gene expression object with tissue, data_partition, cell_ontology_class, and
+        shared_X_umap. Prediction columns and X_umap are written to this object.
+    :param adata_eval: (AnnData) Evaluation cells with embedding-prefixed _pred_cell_ontology_class columns.
+    :param tissue: (str | None) Tissue label used for data selection and/or figure naming, as described above.
+    :param cell_types: (sequence[str] | None) Cell-type labels selected for the plot.
+    :param pred_cell_types: (Tuple[np.ndarray, np.ndarray]) Supplied prediction arrays; currently unused by this
+        function, which reads prediction columns from adata_eval instead.
+    :param classifiers: (Tuple[str, str]) Embedding-classifier keys selected for the two target cell types.
+    :param classification_dict: (dict) Classifier results with per-cell-type metrics beneath classifier -> roc_auc ->
+        cell_type.
+    :param embedding_types: (List[str]) Embedding classifier identifiers to compare.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
     cell_type_1, cell_type_2 = cell_types
     classifier_1, classifier_2 = classifiers
@@ -15216,7 +15917,7 @@ def plot_cell_type_predictions_trvi_marker_genes(
 def plot_roc_auc_curve(
         classifier_evaluation_dict: Dict[str, Dict[str, np.ndarray]],
         cell_type: str,
-        embedding_types: List[str]=["private_1", "private_2", "shared_uni_1", "shared_uni_2", "shared"],
+        embedding_types: List[str] | None = None, #=["private_1", "private_2", "shared_uni_1", "shared_uni_2", "shared"],
         save_fig: bool = True,
 ) -> None:
     r"""
@@ -15225,9 +15926,13 @@ def plot_roc_auc_curve(
 
     :param classifier_evaluation_dict: Dict[str, Dict[str, np.ndarray]], a dictionary containing the ROC AUC scores for different embedding types
     :param cell_type: str, the cell type for which the ROC AUC curve should be plotted
-    :param embedding_types: List[str], a list of embedding types for which the ROC AUC curve should be plotted
+    :param embedding_types: List[str] | None, a list of embedding types for which the ROC AUC curve should be plotted
     :param save_fig: bool, whether to save the figure
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
+
+    if embedding_types is None:
+        embedding_types = ["private_1", "private_2", "shared_uni_1", "shared_uni_2", "shared"]
 
     plt.figure()
 
@@ -15260,7 +15965,7 @@ def evaluate_embedding_clustering(adata: AnnData, tissue: str, likelihood_keys: 
     :param adata: AnnData object containing the latent mean embeddings
     :param tissue: str, the tissue type for which the clustering should be evaluated
     :param likelihood_keys: List[str], the likelihood keys for which the clustering should be evaluated
-    :return: pd.DataFrame, a dataframe containing the evaluation results
+    :return: (pd.DataFrame) Embedding clustering metrics for each requested likelihood.
     """
     if not isinstance(adata, AnnData):
         raise ValueError("Input must be an AnnData object")
@@ -15372,29 +16077,30 @@ def compare_data_imputation(
     Given a gene expression matrix and a transcript usage matrix together with their according reconstructed
     versions, plot the matrices as heatmaps
 
-    :param input_matrix_GE:
-    :param input_matrix_TU:
-    :param recon_matrix_GE:
-    :param recon_matrix_TU:
-    :param model_name:
-    :param tissue:
-    :param num_rows:
-    :param num_cols:
-    :param show_fig:
-    :param save_fig:
+    :param input_matrix_GE: (array-like) Original cell-by-gene expression matrix.
+    :param input_matrix_TU: (array-like) Original cell-by-intron transcript usage matrix.
+    :param recon_matrix_GE: (array-like) Gene expression reconstructions aligned with input_matrix_GE.
+    :param recon_matrix_TU: (array-like) Transcript usage reconstructions aligned with input_matrix_TU.
+    :param model_name: (str) Model identifier used for analysis keys and figure filenames.
+    :param tissue: (str | None) Tissue label used for data selection and/or figure naming, as described above.
+    :param num_rows: (int) Number of subplot rows; must accommodate the panels created by the function.
+    :param num_cols: (int) Number of subplot columns; must accommodate the panels created by the function.
+    :param show_fig: (bool) Whether to display the generated figure with Matplotlib.
+    :param save_fig: (bool) Whether to save the generated figure to the function's output path.
+    :return: None. The function draws or updates the relevant Matplotlib artists.
     """
 
     fig, axes = plt.subplots(num_rows, num_cols, figsize=(10, 5))
 
-    heatmap_input_GE = axes[0, 0].imshow(input_matrix_GE, cmap="viridis")
-    heatmap_input_TU = axes[1, 0].imshow(input_matrix_TU, cmap="viridis")
-    heatmap_recon_GE = axes[0, 1].imshow(recon_matrix_GE, cmap="viridis")
-    heatmap_recon_TU = axes[1, 1].imshow(recon_matrix_TU, cmap="viridis")
+    heatmap_input_ge = axes[0, 0].imshow(input_matrix_GE, cmap="viridis")
+    heatmap_input_tu = axes[1, 0].imshow(input_matrix_TU, cmap="viridis")
+    heatmap_recon_ge = axes[0, 1].imshow(recon_matrix_GE, cmap="viridis")
+    heatmap_recon_tu = axes[1, 1].imshow(recon_matrix_TU, cmap="viridis")
 
-    fig.colorbar(heatmap_input_GE, ax=axes[0, 0])
-    fig.colorbar(heatmap_input_TU, ax=axes[1, 0])
-    fig.colorbar(heatmap_recon_GE, ax=axes[0, 1])
-    fig.colorbar(heatmap_recon_TU, ax=axes[1, 1])
+    fig.colorbar(heatmap_input_ge, ax=axes[0, 0])
+    fig.colorbar(heatmap_input_tu, ax=axes[1, 0])
+    fig.colorbar(heatmap_recon_ge, ax=axes[0, 1])
+    fig.colorbar(heatmap_recon_tu, ax=axes[1, 1])
 
     axes[0, 0].set_title("Gene Expression Matrix")
     axes[0, 1].set_title("Reconstructed Gene Expression Matrix")
