@@ -26,18 +26,17 @@ The documentation build renders notebooks without executing them.
 
 ## Google Colab
 
-The notebooks use a Colab secret named `Crecerelle-GitHub-Access` and install the package from this private repository:
+Install the package from this repository in Colab
 
 ```python
-import os
-from google.colab import userdata
-
-github_token = userdata.get("Crecerelle-GitHub-Access")
-os.environ["Crecerelle-GitHub-Access"] = github_token
+!pip install git+https://github.com/Hollfelder-Lab/crecerelle.git
 ```
+
+## Python package
+
+Install the Python package via pip
 
 ```bash
-pip install git+https://${Crecerelle-GitHub-Access}@github.com/Hollfelder-Lab/crecerelle.git
+pip install git+https://github.com/Hollfelder-Lab/crecerelle.git
 ```
 
-Some notebooks pin `pandas==2.2.2` in the install cell because that pin is present in the runnable notebook source.
