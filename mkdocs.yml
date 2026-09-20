@@ -38,7 +38,7 @@ plugins:
   - mkdocs-jupyter:
       execute: false
       include_source: true
-      ignore_h1_titles: false
+      ignore_h1_titles: true
 
 hooks:
   - hooks/notebook_sources.py
@@ -64,14 +64,14 @@ nav:
   - Paper Reproduction: paper-reproduction.md
   - Tutorials:
       - Tutorial Index: tutorials/index.md
-      - Data Processing and Clustering Assessment: notebooks/main_DataProcessing_ClustAssess.ipynb
-      - tuVI Model Selection: notebooks/main_Model_Selection_tuVI.ipynb
-      - tuVI Training: notebooks/main_Training_tuVI.ipynb
-      - scVI Training: notebooks/main_Training_scVI.ipynb
-      - TRVI Model Selection: notebooks/main_Model_Selection_TRVI.ipynb
-      - TRVI Training: notebooks/main_Training_TRVI.ipynb
-      - tuVI/scVI Inference: notebooks/main_Inference_tuVI_scVI.ipynb
-      - TRVI Inference: notebooks/main_Inference_TRVI.ipynb
+      - Data Processing and ClustAssess: notebooks/main_DataProcessing_ClustAssess.ipynb
+      - Model selection tuVI: notebooks/main_Model_Selection_tuVI.ipynb
+      - Training tuVI: notebooks/main_Training_tuVI.ipynb
+      - Training scVI: notebooks/main_Training_scVI.ipynb
+      - Model selection TRVI: notebooks/main_Model_Selection_TRVI.ipynb
+      - Training TRVI: notebooks/main_Training_TRVI.ipynb
+      - Inference using tuVI and scVI: notebooks/main_Inference_tuVI_scVI.ipynb
+      - Inference using TRVI: notebooks/main_Inference_TRVI.ipynb
   - API Reference:
       - Overview: api/index.md
       - crecerelle.models: api/models.md
