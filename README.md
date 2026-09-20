@@ -83,8 +83,8 @@ Please cite our paper if you use this code in your own work:
 
 For questions, please contact
 
-- fmw37(at)cam.ac.uk
-- fh111(at)cam.ac.uk
+- Friedrich-Maximilian Weberling (fmw37(at)cam.ac.uk)
+- Florian Hollfelder (fh111(at)cam.ac.uk)
 
 ## 🤝 Contributing
 
