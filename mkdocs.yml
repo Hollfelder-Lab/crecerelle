@@ -62,6 +62,7 @@ nav:
   - Quick Start: quick-start.md
   - Conceptual Model: conceptual-model.md
   - Paper Reproduction: paper-reproduction.md
+  - Contributing: contributing.md
   - Tutorials:
       - Tutorial Index: tutorials/index.md
       - Data Processing and ClustAssess: notebooks/main_DataProcessing_ClustAssess.ipynb
