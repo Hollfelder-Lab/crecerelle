@@ -6,18 +6,20 @@ This repo contains the processing scripts, code and evaluation methods for the p
 
 ## 📦 Installation
 
-**Via github**:
+Requires Git and Python 3.12 or newer; Python 3.12 is recommended to match the automated checks. Install into an activated virtual environment.
+
+**Via GitHub checkout**:
 
 ```bash
-git clone git+https://github.com/Hollfelder-Lab/crecerelle.git
+git clone https://github.com/Hollfelder-Lab/crecerelle.git
 cd crecerelle
-pip install -e .
+python -m pip install -e .
 ```
 
-**Via pip**:
+**Directly with pip from GitHub**:
 
 ```bash
-pip install git+https://github.com/Hollfelder-Lab/crecerelle.git
+python -m pip install git+https://github.com/Hollfelder-Lab/crecerelle.git
 ```
 
 ## 🚀 Usage
