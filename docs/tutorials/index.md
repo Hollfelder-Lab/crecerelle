@@ -16,18 +16,6 @@ Each runnable notebook page includes an "Open in Colab" link.
 - GPU recommended: not indicated by notebook metadata.
 - Expected outputs: `clustassess_plots.pdf`, `full_hvg_annotation.npy`, `adata_GE_full_preprocessed.h5ad`, `adata_TU_full_preprocessed.h5ad`, and GE/TU train, validation, and test `.h5ad` files.
 
-## tuVI Model Selection
-
-[Open notebook](../notebooks/main_Model_Selection_tuVI.ipynb){ .md-button }
-[Open in Colab](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main/notebooks/main_Model_Selection_tuVI.ipynb){ .md-button .md-button--primary target="_blank" rel="noopener" }
-
-- Purpose: compare transcript-usage scTUVI model variants and configured random seeds.
-- Input data: preprocessed TU data and train/validation/test splits from preprocessing, plus trained scTUVI checkpoints under `./models/scTUVI/`.
-- Expected runtime: not stated in the notebook; it evaluates multiple seeds and checkpoints and should be treated as a GPU evaluation workflow.
-- Memory requirements: exact memory is not stated; Colab metadata requests a high-memory runtime.
-- GPU recommended: yes; notebook metadata requests a GPU runtime.
-- Expected outputs: `model_selection_scTUVI_<observation_model>_eval_metric_summary.csv` and rendered comparison plots.
-
 ## tuVI Training
 
 [Open notebook](../notebooks/main_Training_tuVI.ipynb){ .md-button }
@@ -38,7 +26,7 @@ Each runnable notebook page includes an "Open in Colab" link.
 - Expected runtime: not stated in the notebook; the configured training cell uses `num_epochs = 300`.
 - Memory requirements: exact memory is not stated; Colab metadata requests a high-memory GPU runtime.
 - GPU recommended: yes; notebook metadata requests a GPU runtime.
-- Expected outputs: scTUVI checkpoint files matching `epochs_*_checkpoint.pth` under `./models/scTUVI/`.
+- Expected outputs: scTUVI checkpoint files matching `epochs_*_checkpoint.pth` under `./models/tuVI/`.
 
 ## scVI Training
 
@@ -52,6 +40,30 @@ Each runnable notebook page includes an "Open in Colab" link.
 - GPU recommended: yes; notebook metadata requests a GPU runtime.
 - Expected outputs: a saved scVI model directory under `./models/scVI/`.
 
+## TRVI Training
+
+[Open notebook](../notebooks/main_Training_TRVI.ipynb){ .md-button }
+[Open in Colab](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main/notebooks/main_Training_TRVI.ipynb){ .md-button .md-button--primary target="_blank" rel="noopener" }
+
+- Purpose: train the joint gene-expression and transcript-usage scGETUVI model.
+- Input data: preprocessed GE/TU data and matching GE/TU train/validation `.h5ad` files from preprocessing.
+- Expected runtime: not stated in the notebook; the configured training cell uses `num_epochs = 1000` with a notebook comment noting `usually 200`.
+- Memory requirements: exact memory is not stated; Colab metadata requests a high-memory GPU runtime.
+- GPU recommended: yes; notebook metadata requests a GPU runtime.
+- Expected outputs: scGETUVI checkpoint files matching `epochs_*_checkpoint.pth` under `./models/TRVII/`.
+
+## tuVI Model Selection
+
+[Open notebook](../notebooks/main_Model_Selection_tuVI.ipynb){ .md-button }
+[Open in Colab](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main/notebooks/main_Model_Selection_tuVI.ipynb){ .md-button .md-button--primary target="_blank" rel="noopener" }
+
+- Purpose: compare transcript-usage scTUVI model variants and configured random seeds.
+- Input data: preprocessed TU data and train/validation/test splits from preprocessing, plus trained scTUVI checkpoints under `./models/scTUVI/`.
+- Expected runtime: not stated in the notebook; it evaluates multiple seeds and checkpoints and should be treated as a GPU evaluation workflow.
+- Memory requirements: exact memory is not stated; Colab metadata requests a high-memory runtime.
+- GPU recommended: yes; notebook metadata requests a GPU runtime.
+- Expected outputs: `model_selection_scTUVI_<observation_model>_eval_metric_summary.csv` and rendered comparison plots.
+
 ## TRVI Model Selection
 
 [Open notebook](../notebooks/main_Model_Selection_TRVI.ipynb){ .md-button }
@@ -64,29 +76,17 @@ Each runnable notebook page includes an "Open in Colab" link.
 - GPU recommended: yes; notebook metadata requests a GPU runtime.
 - Expected outputs: `model_selection_scGETUVI_eval_metric_summary.csv` and rendered comparison plots.
 
-## TRVI Training
-
-[Open notebook](../notebooks/main_Training_TRVI.ipynb){ .md-button }
-[Open in Colab](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main/notebooks/main_Training_TRVI.ipynb){ .md-button .md-button--primary target="_blank" rel="noopener" }
-
-- Purpose: train the joint gene-expression and transcript-usage scGETUVI model.
-- Input data: preprocessed GE/TU data and matching GE/TU train/validation `.h5ad` files from preprocessing.
-- Expected runtime: not stated in the notebook; the configured training cell uses `num_epochs = 1000` with a notebook comment noting `usually 200`.
-- Memory requirements: exact memory is not stated; Colab metadata requests a high-memory GPU runtime.
-- GPU recommended: yes; notebook metadata requests a GPU runtime.
-- Expected outputs: scGETUVI checkpoint files matching `epochs_*_checkpoint.pth` under `./models/scGETUVI/`.
-
 ## tuVI/scVI Inference
 
 [Open notebook](../notebooks/main_Inference_tuVI_scVI.ipynb){ .md-button }
 [Open in Colab](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main/notebooks/main_Inference_tuVI_scVI.ipynb){ .md-button .md-button--primary target="_blank" rel="noopener" }
 
 - Purpose: run inference and downstream analyses for the gene-expression scVI model and transcript-usage scTUVI models.
-- Input data: preprocessed GE/TU data, GE/TU splits, the saved scVI model under `./models/scVI/`, and scTUVI checkpoints under `./models/scTUVI/`.
+- Input data: preprocessed GE/TU data, GE/TU splits, the saved scVI model under `./models/scVI/`, and scTUVI checkpoints under `./models/tuVI/`.
 - Expected runtime: not stated in the notebook; it loads models, evaluates embeddings, and performs downstream analyses.
 - Memory requirements: exact memory is not stated; Colab metadata requests a high-memory GPU runtime.
 - GPU recommended: yes; notebook metadata requests a GPU runtime.
-- Expected outputs: GE and TU cluster-evaluation CSV files, `scvi_sctuvi_evaluation_df.csv`, DEG and DSG CSV files, and `dsg_analysis_heart_sort_<sorting>_clustergroup_<group_id>_marker_introns.pdf`.
+- Expected outputs: GE and TU cluster-evaluation CSV files, `scvi_tuvi_evaluation_df.csv`, DEG and DSG CSV files, and `dsg_analysis_heart_sort_<sorting>_clustergroup_<group_id>_marker_introns.pdf`.
 
 ## TRVI Inference
 
@@ -94,7 +94,7 @@ Each runnable notebook page includes an "Open in Colab" link.
 [Open in Colab](https://colab.research.google.com/github/Hollfelder-Lab/crecerelle/blob/main/notebooks/main_Inference_TRVI.ipynb){ .md-button .md-button--primary target="_blank" rel="noopener" }
 
 - Purpose: run inference and downstream analyses for the joint GE/TU scGETUVI model.
-- Input data: preprocessed GE/TU data, GE/TU splits, and scGETUVI checkpoints under `./models/scGETUVI/`.
+- Input data: preprocessed GE/TU data, GE/TU splits, and scGETUVI checkpoints under `./models/TRVI/`.
 - Expected runtime: not stated in the notebook; it loads model checkpoints, evaluates embeddings, and performs downstream analyses.
 - Memory requirements: exact memory is not stated; Colab metadata requests a high-memory GPU runtime.
 - GPU recommended: yes; notebook metadata requests a GPU runtime.
