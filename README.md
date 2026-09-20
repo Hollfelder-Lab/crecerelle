@@ -84,4 +84,23 @@ For questions, please contact
 - fmw37(at)cam.ac.uk
 - fh111(at)cam.ac.uk
 
+## 🤝 Contributing
+
+We welcome contributions to Crecerelle, including bug fixes, documentation improvements, tutorials, and new features.
+
+To set up the development environment with Python 3.12:
+
+```bash
+git clone https://github.com/Hollfelder-Lab/crecerelle.git
+cd crecerelle
+chmod +x contribute.sh
+./contribute.sh
+source .venv/bin/activate
+```
+
+If you do not have write access, fork the repository first and clone your fork instead. Submit your changes through a pull request.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup, testing, and submission instructions.
+
+
 
