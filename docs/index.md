@@ -25,3 +25,23 @@ Use this site to:
 - and develop further workflows and models built upon  Crecerelle.
 
 Start with the [tutorial index](tutorials/index.md) to choose the notebook you need, or see [paper reproduction](paper-reproduction.md) for the full workflow order.
+
+## Cite our work
+
+Please cite our paper if you use this code in your own work:
+
+```bibtex
+@article{Weberling2026,
+  author = {},
+  title = {},
+  elocation-id = {},
+  year = {2026},
+  doi = {},
+  publisher = {},
+  URL = {},
+  eprint = {},
+  journal = {}
+}
+```
+
+
