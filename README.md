@@ -2,6 +2,7 @@
 
 [![bioRxiv](https://img.shields.io/badge/bioRxiv-10.1101/2024.04.08.588565-b31b1b.svg)](https://www.biorxiv.org/content/10.64898/2026.09.23.753495v1)
 [![Published paper](https://img.shields.io/badge/%F0%9F%93%83_full_paper-pdf-green)](https://www.biorxiv.org/content/10.64898/2026.09.23.753495v1.full.pdf)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22959716.svg)](https://doi.org/10.5281/zenodo.22959716)
 
 This repo contains the processing scripts, code and evaluation methods for the paper "[Deep generative embeddings of gene expression and splicing reposition the interpretation of single-cell transcriptomic signatures](https://www.biorxiv.org/content/10.64898/2026.09.23.753495v1.full.pdf)".
 
