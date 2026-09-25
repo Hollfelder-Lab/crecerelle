@@ -1,6 +1,6 @@
 # Crecerelle
 
-This repo contains the processing scripts, code and evaluation methods for the paper XX.
+This repo contains the processing scripts, code and evaluation methods for the paper "[Deep generative embeddings of gene expression and splicing reposition the interpretation of single-cell transcriptomic signatures](https://www.biorxiv.org/content/10.64898/2026.09.23.753495v1.full.pdf)".
 
 ![crecerelle_model_overview](figures/figure1_crecerelle_overview.png)
 
