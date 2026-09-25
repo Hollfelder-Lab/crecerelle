@@ -61,17 +61,16 @@ This code is licensed under the MIT License - see the [LICENSE](LICENSE) file fo
 Please cite our paper if you use this code in your own work:
 
 ```bibtex
-@article {
- Weberling2026,
- author = {},
- title = {},
- elocation-id = {},
- year = {2026},
- doi = {},
- publisher = {},
- URL = {},
- eprint = {},
- journal = {}
+@article {Weberling2026,
+	author = {Weberling, Friedrich-Maximilian and Ampartzidis, Ioakeim and Mohorianu, Irina and Hollfelder, Florian},
+	title = {Deep generative embeddings of gene expression and splicing reposition the interpretation of single-cell transcriptomic signatures},
+	elocation-id = {2026.09.23.753495},
+	year = {2026},
+	doi = {10.64898/2026.09.23.753495},
+	publisher = {Cold Spring Harbor Laboratory},
+	URL = {https://www.biorxiv.org/content/early/2026/09/25/2026.09.23.753495},
+	eprint = {https://www.biorxiv.org/content/early/2026/09/25/2026.09.23.753495.full.pdf},
+	journal = {bioRxiv}
 }
 ```
 
