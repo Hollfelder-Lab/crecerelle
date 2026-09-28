@@ -54,7 +54,7 @@ For inference with TRVI see
 
 ## 🧪 Processed datasets and trained models 
 
-Our data and trained models are available on Zenodo: XX
+Our data and trained models are available on [Zenodo](https://zenodo.org/records/22959716).
 
 ## 📜 License
 
